@@ -1,69 +1,29 @@
 <script lang="ts">
 	import { invoke } from '@tauri-apps/api/core';
-	import { open, save } from '@tauri-apps/plugin-dialog';
+	import { open } from '@tauri-apps/plugin-dialog';
 	import { dirname } from '@tauri-apps/api/path';
+	import {
+		pickInputFile,
+		pickOutputDir,
+		processFile,
+		reset,
+		shortenPath,
+		type PageState
+	} from '$lib/page-actions';
 
-	// ── State ──────────────────────────────────────────────────────────────────
-	let selectedFile = $state<string | null>(null);
-	let outputDir = $state<string | null>(null);
-	let processing = $state(false);
-	let result = $state<{ output1: string; output2: string } | null>(null);
-	let errorMsg = $state<string | null>(null);
+	let state = $state<PageState>({
+		selectedFile: null,
+		outputDir: null,
+		processing: false,
+		result: null,
+		errorMsg: null
+	});
 
-	// ── Handlers ───────────────────────────────────────────────────────────────
-
-	async function pickInputFile() {
-		const file = await open({
-			multiple: false,
-			filters: [{ name: 'Excel Files', extensions: ['xlsx', 'xls'] }]
-		});
-		if (typeof file === 'string') {
-			selectedFile = file;
-			// Default output directory to the same folder as the input file
-			outputDir = await dirname(file);
-			result = null;
-			errorMsg = null;
-		}
-	}
-
-	async function pickOutputDir() {
-		const dir = await open({ directory: true, multiple: false });
-		if (typeof dir === 'string') {
-			outputDir = dir;
-		}
-	}
-
-	async function processFile() {
-		if (!selectedFile || !outputDir) return;
-
-		processing = true;
-		result = null;
-		errorMsg = null;
-
-		try {
-			const res = await invoke<{ output1: string; output2: string }>('process_excel_file', {
-				inputPath: selectedFile,
-				outputDir: outputDir
-			});
-			result = res;
-		} catch (e: unknown) {
-			errorMsg = String(e);
-		} finally {
-			processing = false;
-		}
-	}
-
-	function reset() {
-		selectedFile = null;
-		outputDir = null;
-		result = null;
-		errorMsg = null;
-	}
-
-	// Helper: shorten a long path for display
-	function shortenPath(path: string, maxLen = 60): string {
-		return path.length <= maxLen ? path : '…' + path.slice(-(maxLen - 1));
-	}
+	const deps = {
+		openDialog: open,
+		dirnamePath: dirname,
+		invokeCommand: invoke
+	};
 </script>
 
 <div class="min-h-screen bg-gray-50 flex flex-col">
@@ -95,7 +55,7 @@
 			<h2 class="text-lg font-semibold text-gray-800">1. Select Excel Input File</h2>
 
 			<button
-				onclick={pickInputFile}
+				onclick={() => pickInputFile(state, deps)}
 				class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-blue-600 text-white font-medium
 				       hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
 				       transition-colors"
@@ -117,7 +77,7 @@
 				Choose .xlsx file
 			</button>
 
-			{#if selectedFile}
+			{#if state.selectedFile}
 				<div class="flex items-center gap-2 text-sm text-gray-600 bg-gray-50 rounded-lg px-4 py-2.5">
 					<svg
 						xmlns="http://www.w3.org/2000/svg"
@@ -129,7 +89,7 @@
 					>
 						<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
 					</svg>
-					<span class="truncate font-mono" title={selectedFile}>{shortenPath(selectedFile)}</span>
+					<span class="truncate font-mono" title={state.selectedFile}>{shortenPath(state.selectedFile)}</span>
 				</div>
 			{/if}
 		</section>
@@ -139,7 +99,7 @@
 			<h2 class="text-lg font-semibold text-gray-800">2. Select Output Directory</h2>
 
 			<button
-				onclick={pickOutputDir}
+				onclick={() => pickOutputDir(state, deps)}
 				class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-gray-200 text-gray-800 font-medium
 				       hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2
 				       transition-colors"
@@ -161,7 +121,7 @@
 				Choose folder
 			</button>
 
-			{#if outputDir}
+			{#if state.outputDir}
 				<div class="flex items-center gap-2 text-sm text-gray-600 bg-gray-50 rounded-lg px-4 py-2.5">
 					<svg
 						xmlns="http://www.w3.org/2000/svg"
@@ -173,7 +133,7 @@
 					>
 						<path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
 					</svg>
-					<span class="truncate font-mono" title={outputDir}>{shortenPath(outputDir)}</span>
+					<span class="truncate font-mono" title={state.outputDir}>{shortenPath(state.outputDir)}</span>
 				</div>
 			{/if}
 		</section>
@@ -184,13 +144,13 @@
 
 			<div class="flex gap-3">
 				<button
-					onclick={processFile}
-					disabled={!selectedFile || !outputDir || processing}
+					onclick={() => processFile(state, deps)}
+					disabled={!state.selectedFile || !state.outputDir || state.processing}
 					class="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg bg-green-600 text-white font-semibold
 					       hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2
 					       disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
 				>
-					{#if processing}
+					{#if state.processing}
 						<svg
 							class="animate-spin h-5 w-5"
 							xmlns="http://www.w3.org/2000/svg"
@@ -227,9 +187,9 @@
 					{/if}
 				</button>
 
-				{#if result || errorMsg}
+				{#if state.result || state.errorMsg}
 					<button
-						onclick={reset}
+						onclick={() => reset(state)}
 						class="px-4 py-2.5 rounded-lg border border-gray-300 text-gray-600 font-medium
 						       hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-400 transition-colors"
 					>
@@ -239,7 +199,7 @@
 			</div>
 
 			<!-- Error -->
-			{#if errorMsg}
+			{#if state.errorMsg}
 				<div
 					class="flex items-start gap-3 bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm"
 				>
@@ -257,12 +217,12 @@
 							d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
 						/>
 					</svg>
-					<span>{errorMsg}</span>
+					<span>{state.errorMsg}</span>
 				</div>
 			{/if}
 
 			<!-- Success -->
-			{#if result}
+			{#if state.result}
 				<div class="space-y-3">
 					<div class="flex items-center gap-2 text-green-700 font-medium">
 						<svg
@@ -279,7 +239,7 @@
 					</div>
 
 					<div class="space-y-2 text-sm">
-						{#each [{ label: 'Output 1', path: result.output1 }, { label: 'Output 2', path: result.output2 }] as file}
+						{#each [{ label: 'Output 1', path: state.result.output1 }, { label: 'Output 2', path: state.result.output2 }] as file}
 							<div class="flex items-center gap-3 bg-green-50 border border-green-200 rounded-lg px-4 py-2.5">
 								<svg
 									xmlns="http://www.w3.org/2000/svg"
