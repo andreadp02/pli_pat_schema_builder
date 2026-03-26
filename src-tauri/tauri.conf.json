@@ -35,9 +35,7 @@
     ]
   },
   "plugins": {
-    "dialog": {},
-    "fs": {
-      "scope": ["$DOWNLOAD/**", "$DOCUMENT/**", "$HOME/**"]
-    }
+    "dialog": null,
+    "fs": null
   }
 }
