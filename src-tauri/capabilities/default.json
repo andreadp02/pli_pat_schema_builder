@@ -13,6 +13,15 @@
     "fs:allow-write-text-file",
     "fs:allow-read-dir",
     "fs:allow-mkdir",
-    "fs:default"
+    {
+      "identifier": "fs:scope",
+      "allow": [
+        "$DOWNLOAD/**",
+        "$DOCUMENT/**",
+        "$HOME/**"
+      ]
+    },
+    "fs:default",
+    "dialog:default"
   ]
 }

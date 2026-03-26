@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::{fs, io};
 
 use calamine::{open_workbook, Data, Reader, Xlsx, XlsxError};
 use rust_xlsxwriter::Workbook;
@@ -52,4 +53,11 @@ pub fn write_excel(path: &Path, sheet_name: &str, rows: &[ExcelRow]) -> Result<(
         .map_err(|e| AppError::Processing(e.to_string()))?;
 
     Ok(())
+}
+
+/// Copies an Excel file preserving all sheets, formulas, and formatting.
+pub fn copy_excel_file(input_path: &Path, output_path: &Path) -> Result<(), AppError> {
+    fs::copy(input_path, output_path)
+        .map(|_| ())
+        .map_err(|e: io::Error| AppError::Io(e.to_string()))
 }
