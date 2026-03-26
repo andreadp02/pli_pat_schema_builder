@@ -56,8 +56,15 @@ pub fn write_excel(path: &Path, sheet_name: &str, rows: &[ExcelRow]) -> Result<(
 }
 
 /// Copies an Excel file preserving all sheets, formulas, and formatting.
-pub fn copy_excel_file(input_path: &Path, output_path: &Path) -> Result<(), AppError> {
-    fs::copy(input_path, output_path)
-        .map(|_| ())
-        .map_err(|e: io::Error| AppError::Io(e.to_string()))
+pub async fn copy_excel_file(input_path: &Path, output_path: &Path) -> Result<(), AppError> {
+    let input = input_path.to_path_buf();
+    let output = output_path.to_path_buf();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        fs::copy(input, output)
+            .map(|_| ())
+            .map_err(|e: io::Error| AppError::Io(e.to_string()))
+    })
+    .await
+    .map_err(|e| AppError::Processing(format!("Background task failed: {e}")))?
 }

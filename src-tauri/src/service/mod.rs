@@ -22,7 +22,10 @@ pub struct ProcessResult {
 ///
 /// Current behavior preserves workbook structure and formatting by cloning the
 /// original file to each output.
-pub fn process_excel(input_path: &Path, output_dir: &Path) -> Result<ProcessResult, AppError> {
+pub async fn process_excel(
+    input_path: &Path,
+    output_dir: &Path,
+) -> Result<ProcessResult, AppError> {
     let input_stem = input_path
         .file_stem()
         .and_then(|s| s.to_str())
@@ -35,8 +38,24 @@ pub fn process_excel(input_path: &Path, output_dir: &Path) -> Result<ProcessResu
     let output1_path = output_dir.join(format!("{}_output1.{}", input_stem, input_ext));
     let output2_path = output_dir.join(format!("{}_output2.{}", input_stem, input_ext));
 
-    repository::copy_excel_file(input_path, &output1_path)?;
-    repository::copy_excel_file(input_path, &output2_path)?;
+    let input1 = input_path.to_path_buf();
+    let input2 = input_path.to_path_buf();
+    let output1 = output1_path.clone();
+    let output2 = output2_path.clone();
+
+    let copy1 = tauri::async_runtime::spawn(async move {
+        repository::copy_excel_file(&input1, &output1).await
+    });
+    let copy2 = tauri::async_runtime::spawn(async move {
+        repository::copy_excel_file(&input2, &output2).await
+    });
+
+    copy1
+        .await
+        .map_err(|e| AppError::Processing(format!("Copy task 1 failed: {e}")))??;
+    copy2
+        .await
+        .map_err(|e| AppError::Processing(format!("Copy task 2 failed: {e}")))??;
 
     Ok(ProcessResult {
         output1: path_to_string(&output1_path),
