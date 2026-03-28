@@ -374,7 +374,7 @@
 								<td colspan="6" class="px-3 py-6 text-center text-sm text-slate-500">No products found.</td>
 							</tr>
 						{:else}
-							{#each products as product}
+							{#each products as product (product.id)}
 								<tr class="border-b border-slate-100 align-top">
 									<td class="px-3 py-3 text-sm text-slate-700">{product.id}</td>
 									{#if editingId === product.id}
