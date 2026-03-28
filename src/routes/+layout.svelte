@@ -71,6 +71,15 @@
 			>
 				Products
 			</a>
+			<a
+				href="/customers"
+				data-no-window-drag
+				class={`rounded px-2.5 py-1 text-xs font-semibold tracking-wide transition-colors ${page.url.pathname.startsWith('/customers')
+					? 'bg-slate-900 text-white'
+					: 'text-slate-700 hover:bg-slate-100'}`}
+			>
+				Customers
+			</a>
 
 			<div class="min-w-4 flex-1"></div>
 		</div>

@@ -139,7 +139,7 @@ fn create_products_in_batches_sync(
         .map_err(|e| AppError::Processing(e.to_string()))?;
 
     for chunk in inputs.chunks(batch_size) {
-        let sql = build_batch_insert_sql(chunk.len());
+        let sql = build_batch_upsert_sql(chunk.len());
         let mut params_values: Vec<Value> = Vec::with_capacity(chunk.len() * 4);
 
         for product in chunk {
@@ -157,12 +157,16 @@ fn create_products_in_batches_sync(
     Ok(inputs.len())
 }
 
-fn build_batch_insert_sql(row_count: usize) -> String {
+fn build_batch_upsert_sql(row_count: usize) -> String {
     let values = std::iter::repeat_n("(?, ?, ?, ?)", row_count)
         .collect::<Vec<_>>()
         .join(", ");
     format!(
-        "INSERT INTO product (code, description, units, pli) VALUES {values}"
+        "INSERT INTO product (code, description, units, pli) VALUES {values} \
+         ON CONFLICT(code) DO UPDATE SET \
+         description = excluded.description, \
+         units = excluded.units, \
+         pli = excluded.pli"
     )
 }
 

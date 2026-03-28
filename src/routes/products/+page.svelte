@@ -212,9 +212,11 @@
 
 		try {
 			successMsg = await uploadProductsExcel(selected);
+			window.alert(successMsg);
 			await loadPage(1);
 		} catch (err) {
 			errorMsg = String(err);
+			window.alert(`Upload failed: ${errorMsg}`);
 		} finally {
 			saving = false;
 		}
