@@ -3,17 +3,16 @@ mod repository;
 mod service;
 mod utils;
 
-use std::fs;
-
 #[cfg(target_os = "windows")]
 use std::fs::OpenOptions;
 #[cfg(target_os = "windows")]
 use std::process::Command;
 
 use rusqlite::Connection;
-use tauri::Manager;
 use tauri_plugin_sql::{Migration, MigrationKind};
 use thiserror::Error;
+
+use crate::utils::{resolve_db_path, SQLITE_DB_URL};
 
 #[derive(Debug, Error)]
 pub enum AppError {
@@ -152,7 +151,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(
             tauri_plugin_sql::Builder::new()
-                .add_migrations("sqlite:products.db", sql_migrations)
+                .add_migrations(SQLITE_DB_URL, sql_migrations)
                 .build(),
         )
         .setup(|app| {
@@ -201,15 +200,7 @@ pub fn run() {
 }
 
 fn ensure_product_table_on_startup(app: &tauri::AppHandle) -> Result<(), String> {
-    let db_path = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("products.db");
-
-    if let Some(parent) = db_path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
+    let db_path = resolve_db_path(app)?;
 
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
     conn.execute(
@@ -228,15 +219,7 @@ fn ensure_product_table_on_startup(app: &tauri::AppHandle) -> Result<(), String>
 }
 
 fn ensure_customer_tables_on_startup(app: &tauri::AppHandle) -> Result<(), String> {
-    let db_path = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("products.db");
-
-    if let Some(parent) = db_path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
+    let db_path = resolve_db_path(app)?;
 
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
     conn.execute("PRAGMA foreign_keys = ON", [])
@@ -285,15 +268,7 @@ fn ensure_customer_tables_on_startup(app: &tauri::AppHandle) -> Result<(), Strin
 
 #[cfg(target_os = "windows")]
 fn hide_database_file_on_windows(app: &tauri::AppHandle) -> Result<(), String> {
-    let db_path = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("products.db");
-
-    if let Some(parent) = db_path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
+    let db_path = resolve_db_path(app)?;
 
     OpenOptions::new()
         .create(true)
