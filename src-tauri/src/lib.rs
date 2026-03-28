@@ -12,7 +12,6 @@ use std::process::Command;
 
 use rusqlite::Connection;
 use tauri::Manager;
-use tauri_plugin_sql::{Migration, MigrationKind};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -49,27 +48,7 @@ fn window_start_dragging(window: tauri::Window) -> Result<(), String> {
 }
 
 pub fn run() {
-    let sql_migrations = vec![Migration {
-        version: 1,
-        description: "create_product_table",
-        sql: "
-            CREATE TABLE IF NOT EXISTS product (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                code TEXT NOT NULL UNIQUE,
-                description TEXT,
-                units INTEGER NOT NULL,
-                pli INTEGER NOT NULL DEFAULT 0
-            );
-        ",
-        kind: MigrationKind::Up,
-    }];
-
     tauri::Builder::default()
-        .plugin(
-            tauri_plugin_sql::Builder::new()
-                .add_migrations("sqlite:products.db", sql_migrations)
-                .build(),
-        )
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(

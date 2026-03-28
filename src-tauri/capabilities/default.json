@@ -22,8 +22,6 @@
       ]
     },
     "fs:default",
-    "dialog:default",
-    "sql:default",
-    "sql:allow-execute"
+    "dialog:default"
   ]
 }
