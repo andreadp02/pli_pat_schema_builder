@@ -422,24 +422,24 @@
 				</table>
 			</div>
 
-			<div class="mt-5 flex items-center justify-end">
-				{#if currentPage === 1}
-					<button
-						onclick={() => loadPage(2)}
-						disabled={!hasNextPage || loading || saving}
-						class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
-					>
-						Go to the second page
-					</button>
-				{:else}
-					<button
-						onclick={() => loadPage(1)}
-						disabled={loading || saving}
-						class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
-					>
-						Go back to the first page
-					</button>
-				{/if}
+			<div class="mt-5 flex items-center justify-end space-x-3">
+				<button
+					onclick={() => loadPage(currentPage - 1)}
+					disabled={currentPage === 1 || loading || saving}
+					class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+				>
+					Previous
+				</button>
+				<span class="text-sm text-slate-600">
+					Page {currentPage}
+				</span>
+				<button
+					onclick={() => loadPage(currentPage + 1)}
+					disabled={!hasNextPage || loading || saving}
+					class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
+				>
+					Next
+				</button>
 			</div>
 
 			{#if errorMsg}
