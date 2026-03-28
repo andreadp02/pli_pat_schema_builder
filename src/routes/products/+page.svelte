@@ -242,6 +242,14 @@
 <div class="h-full bg-gray-50">
 	<main class="mx-auto max-w-7xl px-6 py-8">
 		<section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-6">
+			{#if errorMsg}
+				<p class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMsg}</p>
+			{/if}
+
+			{#if successMsg}
+				<p class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{successMsg}</p>
+			{/if}
+
 			<div class="flex items-center justify-between gap-4 mb-5">
 				<h2 class="text-lg font-semibold text-slate-900">Product Table</h2>
 				<div class="flex items-center gap-2">
@@ -455,14 +463,6 @@
 					Next
 				</button>
 			</div>
-
-			{#if errorMsg}
-				<p class="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMsg}</p>
-			{/if}
-
-			{#if successMsg}
-				<p class="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{successMsg}</p>
-			{/if}
 		</section>
 	</main>
 </div>
