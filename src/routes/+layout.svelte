@@ -17,6 +17,23 @@
 	async function closeWindow(): Promise<void> {
 		await invoke('window_close');
 	}
+
+	async function dragWindow(event: MouseEvent): Promise<void> {
+		if (event.button !== 0) {
+			return;
+		}
+
+		const target = event.target;
+		if (!(target instanceof HTMLElement)) {
+			return;
+		}
+
+		if (target.closest('[data-no-window-drag]')) {
+			return;
+		}
+
+		await invoke('window_start_dragging');
+	}
 </script>
 
 <svelte:head>
@@ -25,17 +42,20 @@
 
 
 <div class="flex h-screen flex-col overflow-hidden bg-gray-50">
-	<header class="flex h-10 shrink-0 items-stretch border-b border-slate-300 bg-white/95 shadow-sm backdrop-blur">
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+	<header
+		class="flex h-10 shrink-0 items-stretch border-b border-slate-300 bg-white/95 shadow-sm backdrop-blur"
+		onmousedown={dragWindow}
+	>
 		<div class="flex min-w-0 flex-1 items-center gap-2 px-3">
-			<span
-				class="truncate text-xs font-semibold tracking-wide text-slate-700"
-				data-tauri-drag-region
-			>
+			<span class="truncate text-xs font-semibold tracking-wide text-slate-700">
 				PLI PAT Schema Builder
 			</span>
 
 			<a
 				href="/"
+				data-no-window-drag
 				class={`rounded px-2.5 py-1 text-xs font-semibold tracking-wide transition-colors ${page.url.pathname === '/'
 					? 'bg-slate-900 text-white'
 					: 'text-slate-700 hover:bg-slate-100'}`}
@@ -44,6 +64,7 @@
 			</a>
 			<a
 				href="/products"
+				data-no-window-drag
 				class={`rounded px-2.5 py-1 text-xs font-semibold tracking-wide transition-colors ${page.url.pathname.startsWith('/products')
 					? 'bg-slate-900 text-white'
 					: 'text-slate-700 hover:bg-slate-100'}`}
@@ -51,12 +72,13 @@
 				Products
 			</a>
 
-			<div class="min-w-4 flex-1" data-tauri-drag-region></div>
+			<div class="min-w-4 flex-1"></div>
 		</div>
 
 		<div class="flex items-stretch">
 			<button
 				type="button"
+				data-no-window-drag
 				class="grid w-12 place-items-center text-slate-700 transition-colors hover:bg-slate-200"
 				onclick={minimizeWindow}
 				aria-label="Minimize window"
@@ -67,6 +89,7 @@
 			</button>
 			<button
 				type="button"
+				data-no-window-drag
 				class="grid w-12 place-items-center text-slate-700 transition-colors hover:bg-slate-200"
 				onclick={toggleMaximize}
 				aria-label="Maximize or restore window"
@@ -77,6 +100,7 @@
 			</button>
 			<button
 				type="button"
+				data-no-window-drag
 				class="grid w-12 place-items-center text-slate-700 transition-colors hover:bg-rose-600 hover:text-white"
 				onclick={closeWindow}
 				aria-label="Close window"

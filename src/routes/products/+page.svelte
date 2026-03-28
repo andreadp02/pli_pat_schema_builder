@@ -3,6 +3,7 @@
 	import {
 		createProduct,
 		deleteProduct,
+		getProductByCode,
 		getProducts,
 		uploadProductsExcel,
 		updateProduct,
@@ -32,6 +33,8 @@
 	let saving = $state(false);
 	let errorMsg = $state<string | null>(null);
 	let successMsg = $state<string | null>(null);
+	let codeSearch = $state('');
+	let pliFilter = $state<'all' | 'pli' | 'not-pli'>('all');
 
 	let showCreateForm = $state(false);
 	let newForm = $state<ProductForm>({ ...defaultForm });
@@ -39,12 +42,18 @@
 	let editingId = $state<number | null>(null);
 	let editForm = $state<ProductForm>({ ...defaultForm });
 
+	function selectedPliFilter(): boolean | null {
+		if (pliFilter === 'pli') return true;
+		if (pliFilter === 'not-pli') return false;
+		return null;
+	}
+
 	async function loadPage(page: number): Promise<void> {
 		loading = true;
 		errorMsg = null;
 
 		try {
-			const result = await getProducts(page, pageSize);
+			const result = await getProducts(page, pageSize, selectedPliFilter());
 			products = result.items;
 			currentPage = result.page;
 			hasNextPage = result.hasNextPage;
@@ -53,6 +62,41 @@
 		} finally {
 			loading = false;
 		}
+	}
+
+	async function onApplyFilters(): Promise<void> {
+		loading = true;
+		errorMsg = null;
+		successMsg = null;
+
+		try {
+			if (codeSearch.trim()) {
+				const product = await getProductByCode(codeSearch);
+				const pli = selectedPliFilter();
+				const matchesPli = pli === null || (product !== null && product.pli === pli);
+
+				products = product !== null && matchesPli ? [product] : [];
+				currentPage = 1;
+				hasNextPage = false;
+				return;
+			}
+
+			const result = await getProducts(1, pageSize, selectedPliFilter());
+			products = result.items;
+			currentPage = result.page;
+			hasNextPage = result.hasNextPage;
+		} catch (err) {
+			errorMsg = String(err);
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function onResetFilters(): Promise<void> {
+		codeSearch = '';
+		pliFilter = 'all';
+		successMsg = null;
+		await loadPage(1);
 	}
 
 	function openCreateForm(): void {
@@ -205,6 +249,41 @@
 					</button>
 				</div>
 			</div>
+
+			<form
+				onsubmit={(event) => {
+					event.preventDefault();
+					onApplyFilters();
+				}}
+				class="mb-4 grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-[2fr_1fr_auto_auto]"
+			>
+				<input
+					type="text"
+					placeholder="Search by code"
+					bind:value={codeSearch}
+					class="rounded-md border border-slate-300 px-3 py-2 text-sm"
+				/>
+				<select bind:value={pliFilter} class="rounded-md border border-slate-300 px-3 py-2 text-sm">
+					<option value="all">All</option>
+					<option value="pli">PLI</option>
+					<option value="not-pli">PAT</option>
+				</select>
+				<button
+					type="submit"
+					disabled={loading || saving}
+					class="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+				>
+					Search
+				</button>
+				<button
+					type="button"
+					onclick={onResetFilters}
+					disabled={loading || saving}
+					class="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+				>
+					Reset
+				</button>
+			</form>
 
 			{#if showCreateForm}
 				<form
