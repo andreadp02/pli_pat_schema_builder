@@ -102,7 +102,7 @@ fn ensure_product_table_on_startup(app: &tauri::AppHandle) -> Result<(), String>
     conn.execute(
         "CREATE TABLE IF NOT EXISTS product (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            code TEXT NOT NULL UNIQUE,
+            code TEXT NOT NULL CHECK(length(code) > 0) UNIQUE,
             description TEXT,
             units INTEGER NOT NULL,
             pli INTEGER NOT NULL DEFAULT 0

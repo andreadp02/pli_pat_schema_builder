@@ -114,9 +114,16 @@
 		errorMsg = null;
 		successMsg = null;
 
+		const trimmedCode = newForm.code.trim();
+		if (!trimmedCode) {
+			errorMsg = 'Product code cannot be empty.';
+			saving = false;
+			return;
+		}
+
 		try {
 			const payload: NewProduct = {
-				code: newForm.code.trim(),
+				code: trimmedCode,
 				description: newForm.description.trim(),
 				units: Number(newForm.units),
 				pli: newForm.pli
@@ -151,9 +158,16 @@
 		errorMsg = null;
 		successMsg = null;
 
+		const trimmedCode = editForm.code.trim();
+		if (!trimmedCode) {
+			errorMsg = 'Product code cannot be empty.';
+			saving = false;
+			return;
+		}
+
 		try {
 			await updateProduct(id, {
-				code: editForm.code.trim(),
+				code: trimmedCode,
 				description: editForm.description.trim(),
 				units: Number(editForm.units),
 				pli: editForm.pli
