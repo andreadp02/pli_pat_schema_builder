@@ -46,11 +46,27 @@ export async function createProduct(input: NewProduct): Promise<number> {
 	return invoke<number>('create_product', { input });
 }
 
-export async function getProducts(page = 1, pageSize = 50): Promise<PaginatedProducts> {
+export async function getProducts(
+	page = 1,
+	pageSize = 50,
+	pliFilter?: boolean | null
+): Promise<PaginatedProducts> {
 	return invoke<PaginatedProducts>('get_products', {
 		page,
-		pageSize
+		pageSize,
+		pliFilter: pliFilter === null ? undefined : pliFilter
 	});
+}
+
+export async function getProductByCode(code: string): Promise<Product | null> {
+	if (!code.trim()) return null;
+
+	const row = await invoke<ProductRow | Product | null>('get_product_by_code', { code });
+	if (!row) return null;
+	if (typeof row.pli === 'boolean') {
+		return row as Product;
+	}
+	return mapProduct(row as ProductRow);
 }
 
 export async function getProductById(id: number): Promise<Product | null> {

@@ -12,6 +12,7 @@ const UNITS_COLUMN_INDEX: usize = 8; // I
 const PLI_COLUMN_INDEX: usize = 10; // K
 const DATA_START_ROW_INDEX: usize = 1;
 const PLI_TRUE_VALUE: i64 = 5;
+const INSERT_BATCH_SIZE: usize = 200;
 
 #[derive(Debug)]
 struct ParsedProductRow {
@@ -47,25 +48,24 @@ pub async fn upload_products_excel(file_path: &Path, db_path: &Path) -> Result<S
 
     let products = parse_products_rows(&rows)?;
 
-    for product in &products {
-        println!(
-            "Products upload extracted -> code: {}, description: {}, units: {}, pli: {}",
-            product.code, product.description, product.units, product.pli
-        );
+    let new_products: Vec<NewProduct> = products
+        .into_iter()
+        .map(|product| NewProduct {
+            code: product.code,
+            description: product.description,
+            units: product.units,
+            pli: product.pli,
+        })
+        .collect();
 
-        product::create_product(
-            db_path.to_path_buf(),
-            NewProduct {
-                code: product.code.clone(),
-                description: product.description.clone(),
-                units: product.units,
-                pli: product.pli,
-            },
-        )
-        .await?;
-    }
+    let inserted = product::create_products_in_batches(
+        db_path.to_path_buf(),
+        new_products,
+        INSERT_BATCH_SIZE,
+    )
+    .await?;
 
-    Ok(format!("Imported {} products successfully", products.len()))
+    Ok(format!("Imported {inserted} products successfully"))
 }
 
 fn parse_products_rows(rows: &[ExcelRow]) -> Result<Vec<ParsedProductRow>, AppError> {

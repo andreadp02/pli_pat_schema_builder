@@ -1,7 +1,8 @@
 use std::path::Path;
 use std::path::PathBuf;
 
-use rusqlite::{params, Connection, OptionalExtension, Row};
+use rusqlite::types::Value;
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 
 use crate::AppError;
@@ -50,12 +51,22 @@ pub async fn get_products(
     db_path: PathBuf,
     page: u32,
     page_size: u32,
+    pli_filter: Option<bool>,
 ) -> Result<PaginatedProducts, AppError> {
     tauri::async_runtime::spawn_blocking(move || {
-        get_products_sync(db_path.as_path(), page, page_size)
+        get_products_sync(db_path.as_path(), page, page_size, pli_filter)
     })
     .await
     .map_err(|e| AppError::Processing(format!("Get products task failed: {e}")))?
+}
+
+pub async fn get_product_by_code(
+    db_path: PathBuf,
+    code: String,
+) -> Result<Option<Product>, AppError> {
+    tauri::async_runtime::spawn_blocking(move || get_product_by_code_sync(db_path.as_path(), &code))
+        .await
+        .map_err(|e| AppError::Processing(format!("Get product by code task failed: {e}")))?
 }
 
 pub async fn get_product_by_id(db_path: PathBuf, id: i64) -> Result<Option<Product>, AppError> {
@@ -80,33 +91,117 @@ pub async fn delete_product(db_path: PathBuf, id: i64) -> Result<bool, AppError>
         .map_err(|e| AppError::Processing(format!("Delete product task failed: {e}")))?
 }
 
+pub async fn create_products_in_batches(
+    db_path: PathBuf,
+    inputs: Vec<NewProduct>,
+    batch_size: usize,
+) -> Result<usize, AppError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        create_products_in_batches_sync(db_path.as_path(), &inputs, batch_size)
+    })
+    .await
+    .map_err(|e| AppError::Processing(format!("Batch create product task failed: {e}")))?
+}
+
+fn normalize_product_code(code: &str) -> String {
+    code.trim().to_uppercase()
+}
+
 fn create_product_sync(db_path: &Path, input: NewProduct) -> Result<i64, AppError> {
     let conn = Connection::open(db_path).map_err(|e| AppError::Io(e.to_string()))?;
+    let normalized_code = normalize_product_code(&input.code);
 
     conn.execute(
         "INSERT INTO product (code, description, units, pli) VALUES (?1, ?2, ?3, ?4)",
-        params![input.code, input.description, input.units, if input.pli { 1 } else { 0 }],
+        params![normalized_code, input.description, input.units, if input.pli { 1 } else { 0 }],
     )
     .map_err(|e| AppError::Processing(e.to_string()))?;
 
     Ok(conn.last_insert_rowid())
 }
 
-fn get_products_sync(db_path: &Path, page: u32, page_size: u32) -> Result<PaginatedProducts, AppError> {
+fn create_products_in_batches_sync(
+    db_path: &Path,
+    inputs: &[NewProduct],
+    batch_size: usize,
+) -> Result<usize, AppError> {
+    if inputs.is_empty() {
+        return Ok(0);
+    }
+
+    if batch_size == 0 {
+        return Err(AppError::Processing("batch_size must be greater than 0".to_string()));
+    }
+
+    let mut conn = Connection::open(db_path).map_err(|e| AppError::Io(e.to_string()))?;
+    let tx = conn
+        .transaction()
+        .map_err(|e| AppError::Processing(e.to_string()))?;
+
+    for chunk in inputs.chunks(batch_size) {
+        let sql = build_batch_insert_sql(chunk.len());
+        let mut params_values: Vec<Value> = Vec::with_capacity(chunk.len() * 4);
+
+        for product in chunk {
+            params_values.push(Value::from(normalize_product_code(&product.code)));
+            params_values.push(Value::from(product.description.clone()));
+            params_values.push(Value::from(i64::from(product.units)));
+            params_values.push(Value::from(if product.pli { 1_i64 } else { 0_i64 }));
+        }
+
+        tx.execute(&sql, params_from_iter(params_values))
+            .map_err(|e| AppError::Processing(e.to_string()))?;
+    }
+
+    tx.commit().map_err(|e| AppError::Processing(e.to_string()))?;
+    Ok(inputs.len())
+}
+
+fn build_batch_insert_sql(row_count: usize) -> String {
+    let values = std::iter::repeat_n("(?, ?, ?, ?)", row_count)
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "INSERT INTO product (code, description, units, pli) VALUES {values}"
+    )
+}
+
+fn get_products_sync(
+    db_path: &Path,
+    page: u32,
+    page_size: u32,
+    pli_filter: Option<bool>,
+) -> Result<PaginatedProducts, AppError> {
     let offset = (page.saturating_sub(1) as u64) * (page_size as u64);
+
+    let mut query = String::from(
+        "SELECT id, code, description, units, pli
+         FROM product",
+    );
+    let mut conditions: Vec<&str> = Vec::new();
+    let mut params_values: Vec<Value> = Vec::new();
+
+    if let Some(pli) = pli_filter {
+        conditions.push("pli = ?");
+        params_values.push(Value::from(if pli { 1_i64 } else { 0_i64 }));
+    }
+
+    if !conditions.is_empty() {
+        query.push_str(" WHERE ");
+        query.push_str(&conditions.join(" AND "));
+    }
+
+    query.push_str(" ORDER BY id DESC LIMIT ? OFFSET ?");
+    params_values.push(Value::from(i64::from(page_size + 1)));
+    params_values.push(Value::from(offset as i64));
 
     let conn = Connection::open(db_path).map_err(|e| AppError::Io(e.to_string()))?;
     let mut stmt = conn
-        .prepare(
-            "SELECT id, code, description, units, pli
-             FROM product
-             ORDER BY id DESC
-             LIMIT ?1 OFFSET ?2",
-        )
+        .prepare(&query)
         .map_err(|e| AppError::Processing(e.to_string()))?;
 
     let mut rows = stmt
-        .query_map(params![i64::from(page_size + 1), offset as i64], map_product_row)
+        .query_map(params_from_iter(params_values), map_product_row)
         .map_err(|e| AppError::Processing(e.to_string()))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| AppError::Processing(e.to_string()))?;
@@ -122,6 +217,27 @@ fn get_products_sync(db_path: &Path, page: u32, page_size: u32) -> Result<Pagina
         page_size,
         has_next_page,
     })
+}
+
+fn get_product_by_code_sync(db_path: &Path, code: &str) -> Result<Option<Product>, AppError> {
+    let normalized_code = normalize_product_code(code);
+
+    let conn = Connection::open(db_path).map_err(|e| AppError::Io(e.to_string()))?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, code, description, units, pli
+             FROM product
+             WHERE code = ?1
+             LIMIT 1",
+        )
+        .map_err(|e| AppError::Processing(e.to_string()))?;
+
+    let product = stmt
+        .query_row(params![normalized_code], map_product_row)
+        .optional()
+        .map_err(|e| AppError::Processing(e.to_string()))?;
+
+    Ok(product)
 }
 
 fn get_product_by_id_sync(db_path: &Path, id: i64) -> Result<Option<Product>, AppError> {
@@ -165,7 +281,11 @@ fn update_product_sync(db_path: &Path, id: i64, input: UpdateProduct) -> Result<
         return Ok(false);
     };
 
-    let next_code = input.code.unwrap_or(existing.code);
+    let next_code = input
+        .code
+        .as_deref()
+        .map(normalize_product_code)
+        .unwrap_or(existing.code);
     let next_description = input.description.unwrap_or(existing.description);
     let next_units = input.units.unwrap_or(existing.units);
     let next_pli = input.pli.unwrap_or(existing.pli);
