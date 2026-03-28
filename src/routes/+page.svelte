@@ -26,28 +26,7 @@
 	};
 </script>
 
-<div class="min-h-screen bg-gray-50 flex flex-col">
-	<!-- Header -->
-	<header class="bg-blue-700 text-white shadow-md">
-		<div class="max-w-3xl mx-auto px-6 py-4 flex items-center gap-3">
-			<svg
-				xmlns="http://www.w3.org/2000/svg"
-				class="h-7 w-7"
-				fill="none"
-				viewBox="0 0 24 24"
-				stroke="currentColor"
-				stroke-width="2"
-			>
-				<path
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					d="M9 12h6m-6 4h6m2 4H7a2 2 0 01-2-2V6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v11a2 2 0 01-2 2z"
-				/>
-			</svg>
-			<h1 class="text-xl font-semibold tracking-wide">PLI PAT Schema Builder</h1>
-		</div>
-	</header>
-
+<div class="h-full bg-gray-50 flex flex-col">
 	<!-- Main content -->
 	<main class="flex-1 max-w-3xl w-full mx-auto px-6 py-10 space-y-8">
 		<!-- Step 1 – Select input file -->

@@ -1,12 +1,94 @@
 <script lang="ts">
+	import { page } from '$app/state';
+	import { invoke } from '@tauri-apps/api/core';
 	import '../app.css';
 	import favicon from '$lib/assets/favicon.svg';
 
 	let { children } = $props();
+
+	async function minimizeWindow(): Promise<void> {
+		await invoke('window_minimize');
+	}
+
+	async function toggleMaximize(): Promise<void> {
+		await invoke('window_toggle_maximize');
+	}
+
+	async function closeWindow(): Promise<void> {
+		await invoke('window_close');
+	}
 </script>
 
 <svelte:head>
 	<link rel="icon" href={favicon} />
 </svelte:head>
 
-{@render children()}
+
+<div class="flex h-screen flex-col overflow-hidden bg-gray-50">
+	<header class="flex h-10 shrink-0 items-stretch border-b border-slate-300 bg-white/95 shadow-sm backdrop-blur">
+		<div class="flex min-w-0 flex-1 items-center gap-2 px-3">
+			<span
+				class="truncate text-xs font-semibold tracking-wide text-slate-700"
+				data-tauri-drag-region
+			>
+				PLI PAT Schema Builder
+			</span>
+
+			<a
+				href="/"
+				class={`rounded px-2.5 py-1 text-xs font-semibold tracking-wide transition-colors ${page.url.pathname === '/'
+					? 'bg-slate-900 text-white'
+					: 'text-slate-700 hover:bg-slate-100'}`}
+			>
+				Home
+			</a>
+			<a
+				href="/products"
+				class={`rounded px-2.5 py-1 text-xs font-semibold tracking-wide transition-colors ${page.url.pathname.startsWith('/products')
+					? 'bg-slate-900 text-white'
+					: 'text-slate-700 hover:bg-slate-100'}`}
+			>
+				Products
+			</a>
+
+			<div class="min-w-4 flex-1" data-tauri-drag-region></div>
+		</div>
+
+		<div class="flex items-stretch">
+			<button
+				type="button"
+				class="grid w-12 place-items-center text-slate-700 transition-colors hover:bg-slate-200"
+				onclick={minimizeWindow}
+				aria-label="Minimize window"
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="currentColor">
+					<rect x="5" y="11" width="14" height="2" />
+				</svg>
+			</button>
+			<button
+				type="button"
+				class="grid w-12 place-items-center text-slate-700 transition-colors hover:bg-slate-200"
+				onclick={toggleMaximize}
+				aria-label="Maximize or restore window"
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2">
+					<rect x="6" y="6" width="12" height="12" />
+				</svg>
+			</button>
+			<button
+				type="button"
+				class="grid w-12 place-items-center text-slate-700 transition-colors hover:bg-rose-600 hover:text-white"
+				onclick={closeWindow}
+				aria-label="Close window"
+			>
+				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M6 6l12 12M18 6L6 18" />
+				</svg>
+			</button>
+		</div>
+	</header>
+
+	<main class="min-h-0 flex-1 overflow-y-auto">
+		{@render children()}
+	</main>
+</div>
