@@ -48,6 +48,10 @@
 		return null;
 	}
 
+	function hasActiveCodeSearch(): boolean {
+		return codeSearch.trim().length > 0;
+	}
+
 	async function loadPage(page: number): Promise<void> {
 		loading = true;
 		errorMsg = null;
@@ -269,6 +273,23 @@
 					>
 						Add Product
 					</button>
+					<div class="ml-2 flex items-center space-x-3">
+						<button
+							onclick={() => loadPage(currentPage - 1)}
+							disabled={currentPage === 1 || loading || saving || hasActiveCodeSearch()}
+							class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+						>
+							Previous
+						</button>
+						<span class="text-sm text-slate-600">Page {currentPage}</span>
+						<button
+							onclick={() => loadPage(currentPage + 1)}
+							disabled={!hasNextPage || loading || saving || hasActiveCodeSearch()}
+							class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
+						>
+							Next
+						</button>
+					</div>
 				</div>
 			</div>
 
@@ -447,7 +468,7 @@
 			<div class="mt-5 flex items-center justify-end space-x-3">
 				<button
 					onclick={() => loadPage(currentPage - 1)}
-					disabled={currentPage === 1 || loading || saving}
+					disabled={currentPage === 1 || loading || saving || hasActiveCodeSearch()}
 					class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
 				>
 					Previous
@@ -457,7 +478,7 @@
 				</span>
 				<button
 					onclick={() => loadPage(currentPage + 1)}
-					disabled={!hasNextPage || loading || saving}
+					disabled={!hasNextPage || loading || saving || hasActiveCodeSearch()}
 					class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
 				>
 					Next

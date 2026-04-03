@@ -14,7 +14,7 @@ use rusqlite::Connection;
 use tauri::Manager;
 use thiserror::Error;
 
-use crate::utils::{resolve_db_path, SQLITE_DB_URL};
+use crate::utils::{resolve_db_path};
 
 #[derive(Debug, Error)]
 pub enum AppError {
@@ -87,10 +87,13 @@ pub fn run() {
             controller::product::upload_products_excel,
             controller::customer::create_customer,
             controller::customer::get_customers,
+            controller::customer::get_customer_by_tax_code,
             controller::customer::get_customer_by_id,
             controller::customer::update_customer,
             controller::customer::delete_customer,
-            controller::customer::upload_customers_excel
+            controller::customer::upload_customers_excel,
+            controller::customer::validate_customers_excel,
+            controller::customer::confirm_customers_excel_upload
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

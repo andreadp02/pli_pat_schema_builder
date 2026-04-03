@@ -1,11 +1,15 @@
 <script lang="ts">
 	import { confirm as confirmDialog, open as openDialog } from '@tauri-apps/plugin-dialog';
 	import {
+		type AmbiguousUploadRow,
+		type ProvinceResolution,
+		confirmCustomersExcelUpload,
 		createCustomer,
 		deleteCustomer,
+		getCustomerByTaxCode,
 		getCustomers,
-		uploadCustomersExcel,
 		updateCustomer,
+		validateCustomersExcel,
 		type Customer,
 		type CustomerTypology,
 		CUSTOMER_TYPOLOGIES,
@@ -40,6 +44,12 @@
 	let saving = $state(false);
 	let errorMsg = $state<string | null>(null);
 	let successMsg = $state<string | null>(null);
+	let taxCodeSearch = $state('');
+	let typologyFilter = $state<'all' | CustomerTypology>('all');
+	let pendingUploadPath = $state<string | null>(null);
+	let ambiguousRows = $state<AmbiguousUploadRow[]>([]);
+	let provinceSelections = $state<Record<number, string>>({});
+	let showProvinceResolutionModal = $state(false);
 
 	let showCreateForm = $state(false);
 	let newForm = $state<CustomerForm>({ ...defaultForm });
@@ -71,12 +81,21 @@
 		};
 	}
 
+	function selectedTypologyFilter(): CustomerTypology | null {
+		if (typologyFilter === 'all') return null;
+		return typologyFilter;
+	}
+
+	function hasActiveTaxCodeSearch(): boolean {
+		return taxCodeSearch.trim().length > 0;
+	}
+
 	async function loadPage(page: number): Promise<void> {
 		loading = true;
 		errorMsg = null;
 
 		try {
-			const result = await getCustomers(page, pageSize);
+			const result = await getCustomers(page, pageSize, selectedTypologyFilter());
 			customers = result.items;
 			currentPage = result.page;
 			hasNextPage = result.hasNextPage;
@@ -85,6 +104,52 @@
 		} finally {
 			loading = false;
 		}
+	}
+
+	async function onApplyFilters(): Promise<void> {
+		loading = true;
+		errorMsg = null;
+		successMsg = null;
+
+		try {
+			const trimmedTaxCode = taxCodeSearch.trim();
+			if (trimmedTaxCode) {
+				const parsedTaxCode = Number(trimmedTaxCode);
+				if (!Number.isInteger(parsedTaxCode)) {
+					errorMsg = 'Tax code must be a valid integer.';
+					customers = [];
+					currentPage = 1;
+					hasNextPage = false;
+					return;
+				}
+
+				const customer = await getCustomerByTaxCode(parsedTaxCode);
+				const typology = selectedTypologyFilter();
+				const matchesTypology =
+					typology === null || (customer !== null && customer.typology === typology);
+
+				customers = customer !== null && matchesTypology ? [customer] : [];
+				currentPage = 1;
+				hasNextPage = false;
+				return;
+			}
+
+			const result = await getCustomers(1, pageSize, selectedTypologyFilter());
+			customers = result.items;
+			currentPage = result.page;
+			hasNextPage = result.hasNextPage;
+		} catch (err) {
+			errorMsg = String(err);
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function onResetFilters(): Promise<void> {
+		taxCodeSearch = '';
+		typologyFilter = 'all';
+		successMsg = null;
+		await loadPage(1);
 	}
 
 	function openCreateForm(): void {
@@ -183,8 +248,78 @@
 		saving = true;
 
 		try {
-			successMsg = await uploadCustomersExcel(selected);
+			const validation = await validateCustomersExcel(selected);
+
+			if (validation.invalidRows.length > 0) {
+				errorMsg = validation.invalidRows
+					.map((row) => (/^row\s+\d+:/i.test(row.message) ? row.message : `Row ${row.rowNumber}: ${row.message}`))
+					.join('\n');
+				window.alert(`Upload failed:\n${errorMsg}`);
+				return;
+			}
+
+			if (validation.ambiguousRows.length > 0) {
+				pendingUploadPath = selected;
+				ambiguousRows = validation.ambiguousRows;
+				provinceSelections = {};
+				showProvinceResolutionModal = true;
+				return;
+			}
+
+			successMsg = await confirmCustomersExcelUpload(selected, []);
 			window.alert(successMsg);
+			await loadPage(1);
+		} catch (err) {
+			errorMsg = String(err);
+			window.alert(`Upload failed: ${errorMsg}`);
+		} finally {
+			saving = false;
+		}
+	}
+
+	function closeProvinceResolutionModal(): void {
+		showProvinceResolutionModal = false;
+		pendingUploadPath = null;
+		ambiguousRows = [];
+		provinceSelections = {};
+	}
+
+	function setProvinceSelection(rowNumber: number, value: string): void {
+		provinceSelections = {
+			...provinceSelections,
+			[rowNumber]: value
+		};
+	}
+
+	async function onConfirmProvinceResolutions(): Promise<void> {
+		if (!pendingUploadPath) {
+			return;
+		}
+
+		const missingRows = ambiguousRows.filter((row) => {
+			const selectedProvince = provinceSelections[row.rowNumber] ?? '';
+			return selectedProvince.trim().length === 0;
+		});
+
+		if (missingRows.length > 0) {
+			const rows = missingRows.map((row) => row.rowNumber).join(', ');
+			window.alert(`Select a province for row(s): ${rows}`);
+			return;
+		}
+
+		saving = true;
+		errorMsg = null;
+		successMsg = null;
+
+		try {
+			const resolutions: ProvinceResolution[] = ambiguousRows.map((row) => ({
+				rowNumber: row.rowNumber,
+				provinceName: provinceSelections[row.rowNumber]
+			}));
+
+			successMsg = await confirmCustomersExcelUpload(pendingUploadPath, resolutions);
+			window.alert(successMsg);
+			closeProvinceResolutionModal();
 			await loadPage(1);
 		} catch (err) {
 			errorMsg = String(err);
@@ -221,8 +356,69 @@
 					>
 						Add Customer
 					</button>
+					<div class="ml-2 flex items-center space-x-3">
+						<button
+							onclick={() => loadPage(currentPage - 1)}
+							disabled={currentPage === 1 || loading || saving || hasActiveTaxCodeSearch()}
+							class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+						>
+							Previous
+						</button>
+						<span class="text-sm text-slate-600">Page {currentPage}</span>
+						<button
+							onclick={() => loadPage(currentPage + 1)}
+							disabled={!hasNextPage || loading || saving || hasActiveTaxCodeSearch()}
+							class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
+						>
+							Next
+						</button>
+					</div>
 				</div>
 			</div>
+
+			{#if errorMsg}
+				<p class="mb-4 whitespace-pre-line rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMsg}</p>
+			{/if}
+
+			{#if successMsg}
+				<p class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{successMsg}</p>
+			{/if}
+
+			<form
+				onsubmit={(event) => {
+					event.preventDefault();
+					onApplyFilters();
+				}}
+				class="mb-4 grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-[2fr_1fr_auto_auto]"
+			>
+				<input
+					type="text"
+					placeholder="Search by tax code"
+					bind:value={taxCodeSearch}
+					class="rounded-md border border-slate-300 px-3 py-2 text-sm"
+				/>
+				<select bind:value={typologyFilter} class="rounded-md border border-slate-300 px-3 py-2 text-sm">
+					<option value="all">All typologies</option>
+					{#each CUSTOMER_TYPOLOGIES as typology}
+						<option value={typology}>{typology}</option>
+					{/each}
+				</select>
+				<button
+					type="submit"
+					disabled={loading || saving}
+					class="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+				>
+					Search
+				</button>
+				<button
+					type="button"
+					onclick={onResetFilters}
+					disabled={loading || saving}
+					class="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+				>
+					Reset
+				</button>
+			</form>
 
 			{#if showCreateForm}
 				<form
@@ -325,25 +521,92 @@
 				</table>
 			</div>
 
-			<div class="mt-5 flex items-center justify-end">
-				{#if currentPage === 1}
-					<button onclick={() => loadPage(2)} disabled={!hasNextPage || loading || saving} class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40">
-						Go to the second page
-					</button>
-				{:else}
-					<button onclick={() => loadPage(1)} disabled={loading || saving} class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40">
-						Go back to the first page
-					</button>
-				{/if}
+			<div class="mt-5 flex items-center justify-end space-x-3">
+				<button
+					onclick={() => loadPage(currentPage - 1)}
+					disabled={currentPage === 1 || loading || saving || hasActiveTaxCodeSearch()}
+					class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+				>
+					Previous
+				</button>
+				<span class="text-sm text-slate-600">
+					Page {currentPage}
+				</span>
+				<button
+					onclick={() => loadPage(currentPage + 1)}
+					disabled={!hasNextPage || loading || saving || hasActiveTaxCodeSearch()}
+					class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
+				>
+					Next
+				</button>
 			</div>
-
-			{#if errorMsg}
-				<p class="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMsg}</p>
-			{/if}
-
-			{#if successMsg}
-				<p class="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{successMsg}</p>
-			{/if}
 		</section>
 	</main>
+
+	{#if showProvinceResolutionModal}
+		<div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+			<div class="w-full max-w-5xl rounded-xl border border-slate-200 bg-white p-5 shadow-xl">
+				<h3 class="text-base font-semibold text-slate-900">Resolve Province For Ambiguous Rows</h3>
+				<p class="mt-1 text-sm text-slate-600">Province is missing and municipality maps to multiple provinces. Select one province for each row.</p>
+
+				<div class="mt-4 max-h-[55vh] overflow-auto rounded-lg border border-slate-200">
+					<table class="min-w-full border-collapse">
+						<thead>
+							<tr class="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
+								<th class="px-3 py-2">Row</th>
+								<th class="px-3 py-2">Tax Code</th>
+								<th class="px-3 py-2">Typology</th>
+								<th class="px-3 py-2">Municipality</th>
+								<th class="px-3 py-2">Address</th>
+								<th class="px-3 py-2">Province</th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each ambiguousRows as row}
+								<tr class="border-b border-slate-100 align-top">
+									<td class="px-3 py-2 text-sm text-slate-700">{row.rowNumber}</td>
+									<td class="px-3 py-2 text-sm text-slate-700">{row.taxCode}</td>
+									<td class="px-3 py-2 text-sm text-slate-700">{row.typology}</td>
+									<td class="px-3 py-2 text-sm text-slate-700">{row.municipalityName}</td>
+									<td class="px-3 py-2 text-sm text-slate-700">{row.address}</td>
+									<td class="px-3 py-2">
+										<select
+											value={provinceSelections[row.rowNumber] ?? ''}
+											onchange={(event) =>
+												setProvinceSelection(row.rowNumber, (event.currentTarget as HTMLSelectElement).value)}
+											class="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+										>
+											<option value="">Select province</option>
+											{#each row.candidateProvinces as province}
+												<option value={province}>{province}</option>
+											{/each}
+										</select>
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
+
+				<div class="mt-4 flex justify-end gap-2">
+					<button
+						type="button"
+						onclick={closeProvinceResolutionModal}
+						class="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+						disabled={saving}
+					>
+						Cancel
+					</button>
+					<button
+						type="button"
+						onclick={onConfirmProvinceResolutions}
+						class="rounded-md bg-blue-700 px-3 py-2 text-sm font-medium text-white hover:bg-blue-800 disabled:opacity-50"
+						disabled={saving}
+					>
+						Confirm Upload
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
 </div>

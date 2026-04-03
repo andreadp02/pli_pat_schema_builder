@@ -1,7 +1,9 @@
 use std::path::Path;
 use std::path::PathBuf;
+use std::collections::HashSet;
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::types::Value;
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 
 use crate::AppError;
@@ -68,10 +70,24 @@ pub async fn get_customers(
     db_path: PathBuf,
     page: u32,
     page_size: u32,
+    typology_filter: Option<String>,
 ) -> Result<PaginatedCustomers, AppError> {
-    tauri::async_runtime::spawn_blocking(move || get_customers_sync(db_path.as_path(), page, page_size))
+    tauri::async_runtime::spawn_blocking(move || {
+        get_customers_sync(db_path.as_path(), page, page_size, typology_filter)
+    })
         .await
         .map_err(|e| AppError::Processing(format!("Get customers task failed: {e}")))?
+}
+
+pub async fn get_customer_by_tax_code(
+    db_path: PathBuf,
+    tax_code: i64,
+) -> Result<Option<Customer>, AppError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        get_customer_by_tax_code_sync(db_path.as_path(), tax_code)
+    })
+    .await
+    .map_err(|e| AppError::Processing(format!("Get customer by tax code task failed: {e}")))?
 }
 
 pub async fn get_customer_by_id(db_path: PathBuf, id: i64) -> Result<Option<Customer>, AppError> {
@@ -100,6 +116,17 @@ pub async fn create_customers_bulk(db_path: PathBuf, inputs: Vec<NewCustomer>) -
     tauri::async_runtime::spawn_blocking(move || create_customers_bulk_sync(db_path.as_path(), inputs))
         .await
         .map_err(|e| AppError::Processing(format!("Bulk create customer task failed: {e}")))?
+}
+
+pub async fn find_provinces_by_municipality(
+    db_path: PathBuf,
+    municipality_name: String,
+) -> Result<Vec<String>, AppError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        find_provinces_by_municipality_sync(db_path.as_path(), &municipality_name)
+    })
+    .await
+    .map_err(|e| AppError::Processing(format!("Find provinces task failed: {e}")))?
 }
 
 fn open_connection(db_path: &Path) -> Result<Connection, AppError> {
@@ -200,35 +227,39 @@ fn create_customer_sync(db_path: &Path, input: NewCustomer) -> Result<i64, AppEr
     Ok(id)
 }
 
-fn get_customers_sync(db_path: &Path, page: u32, page_size: u32) -> Result<PaginatedCustomers, AppError> {
+fn get_customers_sync(
+    db_path: &Path,
+    page: u32,
+    page_size: u32,
+    typology_filter: Option<String>,
+) -> Result<PaginatedCustomers, AppError> {
     let offset = (page.saturating_sub(1) as u64) * (page_size as u64);
     let conn = open_connection(db_path)?;
 
+    let mut query = String::from(
+        "SELECT c.id, c.tax_code, c.ordinal_number, c.typology, c.vat_number, c.address,
+                m.id, m.name, m.province_name
+         FROM customer c
+         JOIN municipality m ON m.id = c.municipality_id",
+    );
+    let mut params_values: Vec<Value> = Vec::new();
+
+    if let Some(raw_typology) = typology_filter {
+        let normalized_typology = normalize_typology(&raw_typology)?;
+        query.push_str(" WHERE c.typology = ?");
+        params_values.push(Value::from(normalized_typology));
+    }
+
+    query.push_str(" ORDER BY c.id DESC LIMIT ? OFFSET ?");
+    params_values.push(Value::from(i64::from(page_size + 1)));
+    params_values.push(Value::from(offset as i64));
+
     let mut stmt = conn
-        .prepare(
-            "SELECT c.id, c.tax_code, c.ordinal_number, c.typology, c.vat_number, c.address,
-                    m.id, m.name, m.province_name
-             FROM customer c
-             JOIN municipality m ON m.id = c.municipality_id
-             ORDER BY c.id DESC
-             LIMIT ?1 OFFSET ?2",
-        )
+        .prepare(&query)
         .map_err(|e| AppError::Processing(e.to_string()))?;
 
     let mut rows = stmt
-        .query_map(params![i64::from(page_size + 1), offset as i64], |row| {
-            Ok(Customer {
-                id: row.get(0)?,
-                tax_code: row.get(1)?,
-                ordinal_number: row.get(2)?,
-                typology: row.get(3)?,
-                vat_number: row.get(4)?,
-                address: row.get(5)?,
-                municipality_id: row.get(6)?,
-                municipality_name: row.get(7)?,
-                province_name: row.get(8)?,
-            })
-        })
+        .query_map(params_from_iter(params_values), map_customer_row)
         .map_err(|e| AppError::Processing(e.to_string()))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| AppError::Processing(e.to_string()))?;
@@ -246,6 +277,23 @@ fn get_customers_sync(db_path: &Path, page: u32, page_size: u32) -> Result<Pagin
     })
 }
 
+fn get_customer_by_tax_code_sync(db_path: &Path, tax_code: i64) -> Result<Option<Customer>, AppError> {
+    let conn = open_connection(db_path)?;
+
+    conn.query_row(
+        "SELECT c.id, c.tax_code, c.ordinal_number, c.typology, c.vat_number, c.address,
+                m.id, m.name, m.province_name
+         FROM customer c
+         JOIN municipality m ON m.id = c.municipality_id
+         WHERE c.tax_code = ?1
+         LIMIT 1",
+        params![tax_code],
+        map_customer_row,
+    )
+    .optional()
+    .map_err(|e| AppError::Processing(e.to_string()))
+}
+
 fn get_customer_by_id_sync(db_path: &Path, id: i64) -> Result<Option<Customer>, AppError> {
     let conn = open_connection(db_path)?;
 
@@ -257,22 +305,24 @@ fn get_customer_by_id_sync(db_path: &Path, id: i64) -> Result<Option<Customer>, 
          WHERE c.id = ?1
          LIMIT 1",
         params![id],
-        |row| {
-            Ok(Customer {
-                id: row.get(0)?,
-                tax_code: row.get(1)?,
-                ordinal_number: row.get(2)?,
-                typology: row.get(3)?,
-                vat_number: row.get(4)?,
-                address: row.get(5)?,
-                municipality_id: row.get(6)?,
-                municipality_name: row.get(7)?,
-                province_name: row.get(8)?,
-            })
-        },
+        map_customer_row,
     )
     .optional()
     .map_err(|e| AppError::Processing(e.to_string()))
+}
+
+fn map_customer_row(row: &Row<'_>) -> rusqlite::Result<Customer> {
+    Ok(Customer {
+        id: row.get(0)?,
+        tax_code: row.get(1)?,
+        ordinal_number: row.get(2)?,
+        typology: row.get(3)?,
+        vat_number: row.get(4)?,
+        address: row.get(5)?,
+        municipality_id: row.get(6)?,
+        municipality_name: row.get(7)?,
+        province_name: row.get(8)?,
+    })
 }
 
 fn update_customer_sync(db_path: &Path, id: i64, input: UpdateCustomer) -> Result<bool, AppError> {
@@ -404,4 +454,42 @@ fn create_customers_bulk_sync(db_path: &Path, inputs: Vec<NewCustomer>) -> Resul
 
     tx.commit().map_err(|e| AppError::Processing(e.to_string()))?;
     Ok(inputs.len())
+}
+
+fn find_provinces_by_municipality_sync(
+    db_path: &Path,
+    municipality_name: &str,
+) -> Result<Vec<String>, AppError> {
+    let trimmed_name = municipality_name.trim();
+    if trimmed_name.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let conn = open_connection(db_path)?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT DISTINCT province_name
+             FROM municipality
+             WHERE UPPER(TRIM(name)) = UPPER(TRIM(?1))
+               AND TRIM(province_name) <> ''
+             ORDER BY province_name ASC",
+        )
+        .map_err(|e| AppError::Processing(e.to_string()))?;
+
+    let provinces = stmt
+        .query_map(params![trimmed_name], |row| row.get::<_, String>(0))
+        .map_err(|e| AppError::Processing(e.to_string()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| AppError::Processing(e.to_string()))?;
+
+    let mut seen = HashSet::new();
+    let mut unique = Vec::new();
+    for province in provinces {
+        let normalized = province.trim().to_uppercase();
+        if !normalized.is_empty() && seen.insert(normalized) {
+            unique.push(province);
+        }
+    }
+
+    Ok(unique)
 }

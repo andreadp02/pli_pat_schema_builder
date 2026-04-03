@@ -6,7 +6,6 @@ use tauri::Manager;
 use crate::AppError;
 
 pub const DB_FILE_NAME: &str = "pli_pat.db";
-pub const SQLITE_DB_URL: &str = "sqlite:pli_pat.db";
 
 pub fn resolve_db_path(app_handle: &tauri::AppHandle) -> Result<PathBuf, String> {
 	let mut db_dir = app_handle

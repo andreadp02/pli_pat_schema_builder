@@ -44,12 +44,53 @@ export type PaginatedCustomers = {
 	hasNextPage: boolean;
 };
 
+export type InvalidUploadRow = {
+	rowNumber: number;
+	message: string;
+};
+
+export type AmbiguousUploadRow = {
+	rowNumber: number;
+	taxCode: number;
+	ordinalNumber: number;
+	typology: CustomerTypology;
+	vatNumber: string | null;
+	address: string;
+	municipalityName: string;
+	candidateProvinces: string[];
+};
+
+export type ValidateCustomersExcelResult = {
+	validRowsCount: number;
+	ambiguousRows: AmbiguousUploadRow[];
+	invalidRows: InvalidUploadRow[];
+};
+
+export type ProvinceResolution = {
+	rowNumber: number;
+	provinceName: string;
+};
+
 export async function createCustomer(input: NewCustomer): Promise<number> {
 	return invoke<number>('create_customer', { input });
 }
 
-export async function getCustomers(page = 1, pageSize = 50): Promise<PaginatedCustomers> {
-	return invoke<PaginatedCustomers>('get_customers', { page, pageSize });
+export async function getCustomers(
+	page = 1,
+	pageSize = 50,
+	typologyFilter?: CustomerTypology | null
+): Promise<PaginatedCustomers> {
+	return invoke<PaginatedCustomers>('get_customers', {
+		page,
+		pageSize,
+		typologyFilter: typologyFilter === null ? undefined : typologyFilter
+	});
+}
+
+export async function getCustomerByTaxCode(taxCode: number): Promise<Customer | null> {
+	if (!Number.isFinite(taxCode)) return null;
+
+	return invoke<Customer | null>('get_customer_by_tax_code', { taxCode });
 }
 
 export async function getCustomerById(id: number): Promise<Customer | null> {
@@ -66,4 +107,15 @@ export async function deleteCustomer(id: number): Promise<boolean> {
 
 export async function uploadCustomersExcel(filePath: string): Promise<string> {
 	return invoke<string>('upload_customers_excel', { filePath });
+}
+
+export async function validateCustomersExcel(filePath: string): Promise<ValidateCustomersExcelResult> {
+	return invoke<ValidateCustomersExcelResult>('validate_customers_excel', { filePath });
+}
+
+export async function confirmCustomersExcelUpload(
+	filePath: string,
+	resolutions: ProvinceResolution[]
+): Promise<string> {
+	return invoke<string>('confirm_customers_excel_upload', { filePath, resolutions });
 }
