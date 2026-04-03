@@ -110,6 +110,9 @@ fn normalize_product_code(code: &str) -> String {
 fn create_product_sync(db_path: &Path, input: NewProduct) -> Result<i64, AppError> {
     let conn = Connection::open(db_path).map_err(|e| AppError::Io(e.to_string()))?;
     let normalized_code = normalize_product_code(&input.code);
+    if normalized_code.is_empty() {
+        return Err(AppError::Processing("Product code cannot be empty".to_string()));
+    }
 
     conn.execute(
         "INSERT INTO product (code, description, units, pli) VALUES (?1, ?2, ?3, ?4)",
@@ -139,11 +142,15 @@ fn create_products_in_batches_sync(
         .map_err(|e| AppError::Processing(e.to_string()))?;
 
     for chunk in inputs.chunks(batch_size) {
-        let sql = build_batch_upsert_sql(chunk.len());
+        let sql = build_batch_insert_sql(chunk.len());
         let mut params_values: Vec<Value> = Vec::with_capacity(chunk.len() * 4);
 
         for product in chunk {
-            params_values.push(Value::from(normalize_product_code(&product.code)));
+            let normalized_code = normalize_product_code(&product.code);
+            if normalized_code.is_empty() {
+                return Err(AppError::Processing("Product code cannot be empty".to_string()));
+            }
+            params_values.push(Value::from(normalized_code));
             params_values.push(Value::from(product.description.clone()));
             params_values.push(Value::from(i64::from(product.units)));
             params_values.push(Value::from(if product.pli { 1_i64 } else { 0_i64 }));
@@ -157,16 +164,12 @@ fn create_products_in_batches_sync(
     Ok(inputs.len())
 }
 
-fn build_batch_upsert_sql(row_count: usize) -> String {
+fn build_batch_insert_sql(row_count: usize) -> String {
     let values = std::iter::repeat_n("(?, ?, ?, ?)", row_count)
         .collect::<Vec<_>>()
         .join(", ");
     format!(
-        "INSERT INTO product (code, description, units, pli) VALUES {values} \
-         ON CONFLICT(code) DO UPDATE SET \
-         description = excluded.description, \
-         units = excluded.units, \
-         pli = excluded.pli"
+        "INSERT INTO product (code, description, units, pli) VALUES {values}"
     )
 }
 
@@ -290,6 +293,9 @@ fn update_product_sync(db_path: &Path, id: i64, input: UpdateProduct) -> Result<
         .as_deref()
         .map(normalize_product_code)
         .unwrap_or(existing.code);
+    if next_code.is_empty() {
+        return Err(AppError::Processing("Product code cannot be empty".to_string()));
+    }
     let next_description = input.description.unwrap_or(existing.description);
     let next_units = input.units.unwrap_or(existing.units);
     let next_pli = input.pli.unwrap_or(existing.pli);

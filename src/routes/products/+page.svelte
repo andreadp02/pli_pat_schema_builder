@@ -114,9 +114,16 @@
 		errorMsg = null;
 		successMsg = null;
 
+		const trimmedCode = newForm.code.trim();
+		if (!trimmedCode) {
+			errorMsg = 'Product code cannot be empty.';
+			saving = false;
+			return;
+		}
+
 		try {
 			const payload: NewProduct = {
-				code: newForm.code.trim(),
+				code: trimmedCode,
 				description: newForm.description.trim(),
 				units: Number(newForm.units),
 				pli: newForm.pli
@@ -151,9 +158,16 @@
 		errorMsg = null;
 		successMsg = null;
 
+		const trimmedCode = editForm.code.trim();
+		if (!trimmedCode) {
+			errorMsg = 'Product code cannot be empty.';
+			saving = false;
+			return;
+		}
+
 		try {
 			await updateProduct(id, {
-				code: editForm.code.trim(),
+				code: trimmedCode,
 				description: editForm.description.trim(),
 				units: Number(editForm.units),
 				pli: editForm.pli
@@ -212,11 +226,9 @@
 
 		try {
 			successMsg = await uploadProductsExcel(selected);
-			window.alert(successMsg);
 			await loadPage(1);
 		} catch (err) {
 			errorMsg = String(err);
-			window.alert(`Upload failed: ${errorMsg}`);
 		} finally {
 			saving = false;
 		}
@@ -230,6 +242,14 @@
 <div class="h-full bg-gray-50">
 	<main class="mx-auto max-w-7xl px-6 py-8">
 		<section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-6">
+			{#if errorMsg}
+				<p class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMsg}</p>
+			{/if}
+
+			{#if successMsg}
+				<p class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{successMsg}</p>
+			{/if}
+
 			<div class="flex items-center justify-between gap-4 mb-5">
 				<h2 class="text-lg font-semibold text-slate-900">Product Table</h2>
 				<div class="flex items-center gap-2">
@@ -362,7 +382,7 @@
 								<td colspan="6" class="px-3 py-6 text-center text-sm text-slate-500">No products found.</td>
 							</tr>
 						{:else}
-							{#each products as product}
+							{#each products as product (product.id)}
 								<tr class="border-b border-slate-100 align-top">
 									<td class="px-3 py-3 text-sm text-slate-700">{product.id}</td>
 									{#if editingId === product.id}
@@ -424,33 +444,25 @@
 				</table>
 			</div>
 
-			<div class="mt-5 flex items-center justify-end">
-				{#if currentPage === 1}
-					<button
-						onclick={() => loadPage(2)}
-						disabled={!hasNextPage || loading || saving}
-						class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
-					>
-						Go to the second page
-					</button>
-				{:else}
-					<button
-						onclick={() => loadPage(1)}
-						disabled={loading || saving}
-						class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
-					>
-						Go back to the first page
-					</button>
-				{/if}
+			<div class="mt-5 flex items-center justify-end space-x-3">
+				<button
+					onclick={() => loadPage(currentPage - 1)}
+					disabled={currentPage === 1 || loading || saving}
+					class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+				>
+					Previous
+				</button>
+				<span class="text-sm text-slate-600">
+					Page {currentPage}
+				</span>
+				<button
+					onclick={() => loadPage(currentPage + 1)}
+					disabled={!hasNextPage || loading || saving}
+					class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
+				>
+					Next
+				</button>
 			</div>
-
-			{#if errorMsg}
-				<p class="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMsg}</p>
-			{/if}
-
-			{#if successMsg}
-				<p class="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{successMsg}</p>
-			{/if}
 		</section>
 	</main>
 </div>

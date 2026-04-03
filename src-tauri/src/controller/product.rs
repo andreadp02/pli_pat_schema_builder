@@ -22,6 +22,10 @@ pub async fn get_products(
     page_size: u32,
     pli_filter: Option<bool>,
 ) -> Result<PaginatedProducts, String> {
+    const MAX_PRODUCTS_PAGE_SIZE: u32 = 1000;
+    if page_size > MAX_PRODUCTS_PAGE_SIZE {
+        return Err(format!("page_size cannot exceed {MAX_PRODUCTS_PAGE_SIZE}"));
+    }
     let db_path = resolve_db_path(&app_handle)?;
     let normalized_page = page.max(1);
     let normalized_page_size = page_size.max(1);

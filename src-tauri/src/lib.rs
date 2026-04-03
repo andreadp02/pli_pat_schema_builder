@@ -3,13 +3,15 @@ mod repository;
 mod service;
 mod utils;
 
+use std::fs;
+
 #[cfg(target_os = "windows")]
 use std::fs::OpenOptions;
 #[cfg(target_os = "windows")]
 use std::process::Command;
 
 use rusqlite::Connection;
-use tauri_plugin_sql::{Migration, MigrationKind};
+use tauri::Manager;
 use thiserror::Error;
 
 use crate::utils::{resolve_db_path, SQLITE_DB_URL};
@@ -48,112 +50,7 @@ fn window_start_dragging(window: tauri::Window) -> Result<(), String> {
 }
 
 pub fn run() {
-    let sql_migrations = vec![Migration {
-        version: 1,
-        description: "create_product_table",
-        sql: "
-            CREATE TABLE IF NOT EXISTS product (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                code TEXT NOT NULL UNIQUE,
-                description TEXT,
-                units INTEGER NOT NULL,
-                pli INTEGER NOT NULL DEFAULT 0
-            );
-        ",
-        kind: MigrationKind::Up,
-    }, Migration {
-        version: 2,
-        description: "create_customer_and_geography_tables",
-        sql: "
-            CREATE TABLE IF NOT EXISTS province (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                code TEXT NOT NULL UNIQUE,
-                name TEXT NOT NULL UNIQUE
-            );
-
-            CREATE TABLE IF NOT EXISTS municipality (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                code TEXT UNIQUE,
-                name TEXT NOT NULL,
-                province_id INTEGER NOT NULL,
-                FOREIGN KEY (province_id) REFERENCES province(id),
-                UNIQUE(name, province_id)
-            );
-
-            CREATE TABLE IF NOT EXISTS customer (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                tax_code INTEGER NOT NULL UNIQUE,
-                ordinal_number INTEGER NOT NULL,
-                typology TEXT NOT NULL CHECK (typology IN ('ESERCIZIO DI VICINATO','RIVENDITA','FARMACIA','PARAFARMACIA')),
-                vat_number TEXT UNIQUE,
-                address TEXT NOT NULL,
-                municipality_id INTEGER NOT NULL,
-                FOREIGN KEY (municipality_id) REFERENCES municipality(id)
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_municipality_province_id ON municipality(province_id);
-            CREATE INDEX IF NOT EXISTS idx_customer_municipality_id ON customer(municipality_id);
-        ",
-        kind: MigrationKind::Up,
-    }, Migration {
-        version: 3,
-        description: "simplify_municipality_and_province_schema",
-        sql: "
-            PRAGMA foreign_keys = OFF;
-
-            CREATE TABLE IF NOT EXISTS municipality_new (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                province_name TEXT NOT NULL,
-                UNIQUE(name, province_name)
-            );
-
-            INSERT OR IGNORE INTO municipality_new (name, province_name)
-            SELECT m.name, COALESCE(p.name, '')
-            FROM municipality m
-            LEFT JOIN province p ON p.id = m.province_id;
-
-            CREATE TABLE IF NOT EXISTS customer_new (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                tax_code INTEGER NOT NULL UNIQUE,
-                ordinal_number INTEGER NOT NULL,
-                typology TEXT NOT NULL CHECK (typology IN ('ESERCIZIO DI VICINATO','RIVENDITA','FARMACIA','PARAFARMACIA')),
-                vat_number TEXT UNIQUE,
-                address TEXT NOT NULL,
-                municipality_id INTEGER NOT NULL,
-                FOREIGN KEY (municipality_id) REFERENCES municipality_new(id)
-            );
-
-            INSERT OR IGNORE INTO customer_new (id, tax_code, ordinal_number, typology, vat_number, address, municipality_id)
-            SELECT c.id, c.tax_code, c.ordinal_number, c.typology, c.vat_number, c.address, mn.id
-            FROM customer c
-            JOIN municipality m ON m.id = c.municipality_id
-            LEFT JOIN province p ON p.id = m.province_id
-            JOIN municipality_new mn
-                ON mn.name = m.name
-               AND mn.province_name = COALESCE(p.name, '');
-
-            DROP TABLE IF EXISTS customer;
-            DROP TABLE IF EXISTS municipality;
-            DROP TABLE IF EXISTS province;
-
-            ALTER TABLE municipality_new RENAME TO municipality;
-            ALTER TABLE customer_new RENAME TO customer;
-
-            CREATE INDEX IF NOT EXISTS idx_customer_municipality_id ON customer(municipality_id);
-            CREATE INDEX IF NOT EXISTS idx_municipality_name_province ON municipality(name, province_name);
-
-            PRAGMA foreign_keys = ON;
-        ",
-        kind: MigrationKind::Up,
-    }];
-
     tauri::Builder::default()
-        .plugin(
-            tauri_plugin_sql::Builder::new()
-                .add_migrations(SQLITE_DB_URL, sql_migrations)
-                .build(),
-        )
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -200,13 +97,21 @@ pub fn run() {
 }
 
 fn ensure_product_table_on_startup(app: &tauri::AppHandle) -> Result<(), String> {
-    let db_path = resolve_db_path(app)?;
+    let db_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("products.db");
+
+    if let Some(parent) = db_path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
 
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
     conn.execute(
         "CREATE TABLE IF NOT EXISTS product (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            code TEXT NOT NULL UNIQUE,
+            code TEXT NOT NULL CHECK(length(code) > 0) UNIQUE,
             description TEXT,
             units INTEGER NOT NULL,
             pli INTEGER NOT NULL DEFAULT 0
@@ -268,7 +173,15 @@ fn ensure_customer_tables_on_startup(app: &tauri::AppHandle) -> Result<(), Strin
 
 #[cfg(target_os = "windows")]
 fn hide_database_file_on_windows(app: &tauri::AppHandle) -> Result<(), String> {
-    let db_path = resolve_db_path(app)?;
+    let db_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("products.db");
+
+    if let Some(parent) = db_path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
 
     OpenOptions::new()
         .create(true)
