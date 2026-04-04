@@ -7,6 +7,8 @@ use crate::service;
 use crate::service::customer::{ProvinceResolution, ValidateCustomersExcelResult};
 use crate::utils::resolve_db_path;
 
+const MAX_COSTUMERS_PAGE_SIZE: u32 = 1000;
+
 #[command]
 pub async fn create_customer(app_handle: AppHandle, input: NewCustomer) -> Result<i64, String> {
     let db_path = resolve_db_path(&app_handle)?;
@@ -22,6 +24,9 @@ pub async fn get_customers(
     page_size: u32,
     typology_filter: Option<String>,
 ) -> Result<PaginatedCustomers, String> {
+    if page_size > MAX_COSTUMERS_PAGE_SIZE {
+        return Err(format!("page_size cannot exceed {MAX_COSTUMERS_PAGE_SIZE}"));
+    }
     let db_path = resolve_db_path(&app_handle)?;
     customer::get_customers(db_path, page.max(1), page_size.max(1), typology_filter)
         .await
@@ -40,7 +45,10 @@ pub async fn get_customer_by_tax_code(
 }
 
 #[command]
-pub async fn get_customer_by_id(app_handle: AppHandle, id: i64) -> Result<Option<customer::Customer>, String> {
+pub async fn get_customer_by_id(
+    app_handle: AppHandle,
+    id: i64,
+) -> Result<Option<customer::Customer>, String> {
     let db_path = resolve_db_path(&app_handle)?;
     customer::get_customer_by_id(db_path, id)
         .await
@@ -68,7 +76,10 @@ pub async fn delete_customer(app_handle: AppHandle, id: i64) -> Result<bool, Str
 }
 
 #[command]
-pub async fn upload_customers_excel(app_handle: AppHandle, file_path: String) -> Result<String, String> {
+pub async fn upload_customers_excel(
+    app_handle: AppHandle,
+    file_path: String,
+) -> Result<String, String> {
     let db_path = resolve_db_path(&app_handle)?;
 
     service::customer::upload_customers_excel(Path::new(&file_path), db_path.as_path())
@@ -104,4 +115,3 @@ pub async fn confirm_customers_excel_upload(
     .await
     .map_err(|e| e.to_string())
 }
-

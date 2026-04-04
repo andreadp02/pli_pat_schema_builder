@@ -6,6 +6,8 @@ use crate::repository::product::{self, NewProduct, PaginatedProducts, Product, U
 use crate::service;
 use crate::utils::resolve_db_path;
 
+const MAX_PRODUCTS_PAGE_SIZE: u32 = 1000;
+
 #[command]
 pub async fn create_product(app_handle: AppHandle, input: NewProduct) -> Result<i64, String> {
     let db_path = resolve_db_path(&app_handle)?;
@@ -22,7 +24,6 @@ pub async fn get_products(
     page_size: u32,
     pli_filter: Option<bool>,
 ) -> Result<PaginatedProducts, String> {
-    const MAX_PRODUCTS_PAGE_SIZE: u32 = 1000;
     if page_size > MAX_PRODUCTS_PAGE_SIZE {
         return Err(format!("page_size cannot exceed {MAX_PRODUCTS_PAGE_SIZE}"));
     }
