@@ -25,3 +25,5 @@ vite.config.ts.timestamp-*
 # Rust / Tauri
 src-tauri/target/
 /gen
+
+.vscode

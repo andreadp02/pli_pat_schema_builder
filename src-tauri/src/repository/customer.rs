@@ -251,7 +251,7 @@ fn get_customers_sync(
     }
 
     query.push_str(" ORDER BY c.id DESC LIMIT ? OFFSET ?");
-    params_values.push(Value::from(i64::from(page_size + 1)));
+    params_values.push(Value::from(i64::from(page_size.saturating_add(1))));
     params_values.push(Value::from(offset as i64));
 
     let mut stmt = conn

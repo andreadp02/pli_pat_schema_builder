@@ -57,10 +57,20 @@
 	let editingId = $state<number | null>(null);
 	let editForm = $state<CustomerForm>({ ...defaultForm });
 
+function parseRequiredPositiveInteger(value: number, fieldName: string): number {
+		if (value === null || value === undefined || value === 0) {
+			throw new Error(`${fieldName} is required and must be greater than 0.`);
+		}
+		const parsedValue = Number(value);
+		if (!Number.isFinite(parsedValue) || !Number.isInteger(parsedValue) || parsedValue <= 0) {
+			throw new Error(`${fieldName} must be a positive integer.`);
+		}
+		return parsedValue;
+	}
 	function toPayload(form: CustomerForm): NewCustomer {
 		return {
-			taxCode: Number(form.taxCode),
-			ordinalNumber: Number(form.ordinalNumber),
+			taxCode: parseRequiredPositiveInteger(form.taxCode, 'Tax code'),
+			ordinalNumber: parseRequiredPositiveInteger(form.ordinalNumber, 'Ordinal number'),
 			typology: form.typology,
 			vatNumber: form.vatNumber.trim() || null,
 			address: form.address.trim(),

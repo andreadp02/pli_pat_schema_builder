@@ -100,15 +100,7 @@ pub fn run() {
 }
 
 fn ensure_product_table_on_startup(app: &tauri::AppHandle) -> Result<(), String> {
-    let db_path = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("products.db");
-
-    if let Some(parent) = db_path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
+    let db_path = resolve_db_path(app)?;
 
     let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
     conn.execute(
