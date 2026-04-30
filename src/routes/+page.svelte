@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { invoke } from '@tauri-apps/api/core';
 	import { open } from '@tauri-apps/plugin-dialog';
 	import { dirname } from '@tauri-apps/api/path';
@@ -17,6 +18,13 @@
 		processing: false,
 		result: null,
 		errorMsg: null
+	});
+
+	onMount(() => {
+		const savedDir = window.localStorage.getItem('defaultOutputDir');
+		if (savedDir) {
+			state.outputDir = savedDir;
+		}
 	});
 
 	const deps = {

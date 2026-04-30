@@ -422,6 +422,8 @@ fn create_customers_bulk_sync(db_path: &Path, inputs: Vec<NewCustomer>) -> Resul
         .transaction()
         .map_err(|e| AppError::Processing(e.to_string()))?;
 
+    let mut total_affected = 0;
+
     for input in &inputs {
         let typology = normalize_typology(&input.typology)?;
         let address = input.address.trim().to_string();
@@ -431,7 +433,7 @@ fn create_customers_bulk_sync(db_path: &Path, inputs: Vec<NewCustomer>) -> Resul
         let vat_number = normalize_optional_field(input.vat_number.clone());
         let municipality_id = upsert_municipality(&tx, &input.municipality_name, &input.province_name)?;
 
-        tx.execute(
+        total_affected += tx.execute(
             "INSERT INTO customer (tax_code, ordinal_number, typology, vat_number, address, municipality_id)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(tax_code) DO UPDATE SET
@@ -439,7 +441,12 @@ fn create_customers_bulk_sync(db_path: &Path, inputs: Vec<NewCustomer>) -> Resul
                  typology = excluded.typology,
                  vat_number = excluded.vat_number,
                  address = excluded.address,
-                 municipality_id = excluded.municipality_id",
+                 municipality_id = excluded.municipality_id
+             WHERE customer.ordinal_number != excluded.ordinal_number
+                OR customer.typology != excluded.typology
+                OR COALESCE(customer.vat_number, '') != COALESCE(excluded.vat_number, '')
+                OR customer.address != excluded.address
+                OR customer.municipality_id != excluded.municipality_id",
             params![
                 input.tax_code,
                 input.ordinal_number,
@@ -453,7 +460,7 @@ fn create_customers_bulk_sync(db_path: &Path, inputs: Vec<NewCustomer>) -> Resul
     }
 
     tx.commit().map_err(|e| AppError::Processing(e.to_string()))?;
-    Ok(inputs.len())
+    Ok(total_affected)
 }
 
 fn find_provinces_by_municipality_sync(

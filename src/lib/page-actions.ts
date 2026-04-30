@@ -28,7 +28,9 @@ export async function pickInputFile(state: PageState, deps: ActionDeps): Promise
 
 	if (typeof file === 'string') {
 		state.selectedFile = file;
-		state.outputDir = await deps.dirnamePath(file);
+		if (!state.outputDir) {
+			state.outputDir = await deps.dirnamePath(file);
+		}
 		state.result = null;
 		state.errorMsg = null;
 	}
@@ -38,6 +40,9 @@ export async function pickOutputDir(state: PageState, deps: ActionDeps): Promise
 	const dir = await deps.openDialog({ directory: true, multiple: false });
 	if (typeof dir === 'string') {
 		state.outputDir = dir;
+		if (typeof window !== 'undefined') {
+			window.localStorage.setItem('defaultOutputDir', dir);
+		}
 	}
 }
 
@@ -63,7 +68,12 @@ export async function processFile(state: PageState, deps: ActionDeps): Promise<v
 
 export function reset(state: PageState): void {
 	state.selectedFile = null;
-	state.outputDir = null;
+	if (typeof window !== 'undefined') {
+		const savedDir = window.localStorage.getItem('defaultOutputDir');
+		state.outputDir = savedDir || null;
+	} else {
+		state.outputDir = null;
+	}
 	state.result = null;
 	state.errorMsg = null;
 }

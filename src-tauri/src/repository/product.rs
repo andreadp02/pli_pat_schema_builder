@@ -141,6 +141,8 @@ fn create_products_in_batches_sync(
         .transaction()
         .map_err(|e| AppError::Processing(e.to_string()))?;
 
+    let mut total_affected = 0;
+
     for chunk in inputs.chunks(batch_size) {
         let sql = build_batch_insert_sql(chunk.len());
         let mut params_values: Vec<Value> = Vec::with_capacity(chunk.len() * 4);
@@ -156,12 +158,12 @@ fn create_products_in_batches_sync(
             params_values.push(Value::from(if product.pli { 1_i64 } else { 0_i64 }));
         }
 
-        tx.execute(&sql, params_from_iter(params_values))
+        total_affected += tx.execute(&sql, params_from_iter(params_values))
             .map_err(|e| AppError::Processing(e.to_string()))?;
     }
 
     tx.commit().map_err(|e| AppError::Processing(e.to_string()))?;
-    Ok(inputs.len())
+    Ok(total_affected)
 }
 
 fn build_batch_insert_sql(row_count: usize) -> String {
@@ -169,7 +171,14 @@ fn build_batch_insert_sql(row_count: usize) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     format!(
-        "INSERT INTO product (code, description, units, pli) VALUES {values}"
+        "INSERT INTO product (code, description, units, pli) VALUES {values}
+         ON CONFLICT(code) DO UPDATE SET
+             description = excluded.description,
+             units = excluded.units,
+             pli = excluded.pli
+         WHERE product.description != excluded.description 
+            OR product.units != excluded.units 
+            OR product.pli != excluded.pli"
     )
 }
 
