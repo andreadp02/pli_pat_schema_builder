@@ -2,7 +2,9 @@ use std::path::Path;
 
 use tauri::{command, AppHandle};
 
-use crate::repository::product::{self, NewProduct, PaginatedProducts, Product, UpdateProduct};
+use crate::repository::product::{
+    self, NewProduct, PaginatedProducts, Product, ProductType, UpdateProduct,
+};
 use crate::service;
 use crate::utils::resolve_db_path;
 
@@ -22,7 +24,7 @@ pub async fn get_products(
     app_handle: AppHandle,
     page: u32,
     page_size: u32,
-    pli_filter: Option<bool>,
+    product_type_filter: Option<ProductType>,
 ) -> Result<PaginatedProducts, String> {
     if page_size > MAX_PRODUCTS_PAGE_SIZE {
         return Err(format!("page_size cannot exceed {MAX_PRODUCTS_PAGE_SIZE}"));
@@ -35,7 +37,7 @@ pub async fn get_products(
         db_path,
         normalized_page,
         normalized_page_size,
-        pli_filter,
+        product_type_filter,
     )
         .await
     .map_err(|e| e.to_string())
@@ -45,16 +47,20 @@ pub async fn get_products(
 pub async fn get_product_by_code(
     app_handle: AppHandle,
     code: String,
+    product_type_filter: Option<ProductType>,
 ) -> Result<Option<Product>, String> {
     let db_path = resolve_db_path(&app_handle)?;
 
-    product::get_product_by_code(db_path, code)
+    product::get_product_by_code(db_path, code, product_type_filter)
         .await
         .map_err(|e| e.to_string())
 }
 
 #[command]
-pub async fn get_product_by_id(app_handle: AppHandle, id: i64) -> Result<Option<Product>, String> {
+pub async fn get_product_by_id(
+    app_handle: AppHandle,
+    id: i64,
+) -> Result<Option<Product>, String> {
     let db_path = resolve_db_path(&app_handle)?;
 
     product::get_product_by_id(db_path, id)
@@ -76,7 +82,10 @@ pub async fn update_product(
 }
 
 #[command]
-pub async fn delete_product(app_handle: AppHandle, id: i64) -> Result<bool, String> {
+pub async fn delete_product(
+    app_handle: AppHandle,
+    id: i64,
+) -> Result<bool, String> {
     let db_path = resolve_db_path(&app_handle)?;
 
     product::delete_product(db_path, id)
@@ -92,4 +101,3 @@ pub async fn upload_products_excel(app_handle: AppHandle, file_path: String) -> 
         .await
         .map_err(|e| e.to_string())
 }
-

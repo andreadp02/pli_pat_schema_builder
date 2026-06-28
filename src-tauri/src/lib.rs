@@ -3,15 +3,12 @@ mod repository;
 mod service;
 mod utils;
 
-use std::fs;
-
 #[cfg(target_os = "windows")]
 use std::fs::OpenOptions;
 #[cfg(target_os = "windows")]
 use std::process::Command;
 
 use rusqlite::Connection;
-use tauri::Manager;
 use thiserror::Error;
 
 use crate::utils::{resolve_db_path};
@@ -106,10 +103,17 @@ fn ensure_product_table_on_startup(app: &tauri::AppHandle) -> Result<(), String>
     conn.execute(
         "CREATE TABLE IF NOT EXISTS product (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_type TEXT NOT NULL CHECK(product_type IN ('pli','pat')),
             code TEXT NOT NULL CHECK(length(code) > 0) UNIQUE,
             description TEXT,
             units INTEGER NOT NULL,
-            pli INTEGER NOT NULL DEFAULT 0
+            capacity INTEGER,
+            nicotine INTEGER,
+            packages INTEGER,
+            CHECK (
+                (product_type = 'pli' AND capacity IS NOT NULL AND nicotine IS NOT NULL AND packages IS NULL)
+             OR (product_type = 'pat' AND packages IS NOT NULL AND capacity IS NULL AND nicotine IS NULL)
+            )
         )",
         [],
     )
@@ -168,15 +172,7 @@ fn ensure_customer_tables_on_startup(app: &tauri::AppHandle) -> Result<(), Strin
 
 #[cfg(target_os = "windows")]
 fn hide_database_file_on_windows(app: &tauri::AppHandle) -> Result<(), String> {
-    let db_path = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| e.to_string())?
-        .join("products.db");
-
-    if let Some(parent) = db_path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
+    let db_path = resolve_db_path(app)?;
 
     OpenOptions::new()
         .create(true)

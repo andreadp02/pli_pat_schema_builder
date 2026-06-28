@@ -1,21 +1,36 @@
 import { invoke } from '@tauri-apps/api/core';
 
+export type ProductType = 'pli' | 'pat';
+
 export type Product = {
 	id: number;
 	code: string;
 	description: string;
 	units: number;
-	pli: boolean;
+	productType: ProductType;
+	capacity: number | null;
+	nicotine: number | null;
+	packages: number | null;
 };
 
 export type NewProduct = {
+	productType: ProductType;
 	code: string;
 	description: string;
 	units: number;
-	pli: boolean;
+	capacity?: number | null;
+	nicotine?: number | null;
+	packages?: number | null;
 };
 
-export type UpdateProduct = Partial<NewProduct>;
+export type UpdateProduct = {
+	code?: string;
+	description?: string;
+	units?: number;
+	capacity?: number | null;
+	nicotine?: number | null;
+	packages?: number | null;
+};
 
 export type PaginatedProducts = {
 	items: Product[];
@@ -24,24 +39,6 @@ export type PaginatedProducts = {
 	hasNextPage: boolean;
 };
 
-type ProductRow = {
-	id: number;
-	code: string;
-	description: string;
-	units: number;
-	pli: number;
-};
-
-function mapProduct(row: ProductRow): Product {
-	return {
-		id: row.id,
-		code: row.code,
-		description: row.description,
-		units: row.units,
-		pli: !!row.pli
-	};
-}
-
 export async function createProduct(input: NewProduct): Promise<number> {
 	return invoke<number>('create_product', { input });
 }
@@ -49,33 +46,28 @@ export async function createProduct(input: NewProduct): Promise<number> {
 export async function getProducts(
 	page = 1,
 	pageSize = 50,
-	pliFilter?: boolean | null
+	productTypeFilter?: ProductType | null
 ): Promise<PaginatedProducts> {
 	return invoke<PaginatedProducts>('get_products', {
 		page,
 		pageSize,
-		pliFilter: pliFilter === null ? undefined : pliFilter
+		productTypeFilter: productTypeFilter ?? undefined
 	});
 }
 
-export async function getProductByCode(code: string): Promise<Product | null> {
+export async function getProductByCode(
+	code: string,
+	productTypeFilter?: ProductType | null
+): Promise<Product | null> {
 	if (!code.trim()) return null;
-
-	const row = await invoke<ProductRow | Product | null>('get_product_by_code', { code });
-	if (!row) return null;
-	if (typeof row.pli === 'boolean') {
-		return row as Product;
-	}
-	return mapProduct(row as ProductRow);
+	return invoke<Product | null>('get_product_by_code', {
+		code,
+		productTypeFilter: productTypeFilter ?? undefined
+	});
 }
 
 export async function getProductById(id: number): Promise<Product | null> {
-	const row = await invoke<ProductRow | Product | null>('get_product_by_id', { id });
-	if (!row) return null;
-	if (typeof row.pli === 'boolean') {
-		return row as Product;
-	}
-	return mapProduct(row as ProductRow);
+	return invoke<Product | null>('get_product_by_id', { id });
 }
 
 export async function updateProduct(id: number, input: UpdateProduct): Promise<boolean> {

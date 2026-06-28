@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::repository::excel as excel_repository;
-use crate::repository::product::{self, NewProduct};
+use crate::repository::product::{self, NewProduct, ProductType};
 use crate::service::excel::ExcelRow;
 use crate::utils::parse_i64;
 use crate::AppError;
@@ -19,7 +19,10 @@ struct ParsedProductRow {
     code: String,
     description: String,
     units: u32,
-    pli: bool,
+    product_type: ProductType,
+    capacity: u32,
+    nicotine: u32,
+    packages: u32,
 }
 
 pub async fn upload_products_excel(file_path: &Path, db_path: &Path) -> Result<String, AppError> {
@@ -50,11 +53,20 @@ pub async fn upload_products_excel(file_path: &Path, db_path: &Path) -> Result<S
 
     let new_products: Vec<NewProduct> = products
         .into_iter()
-        .map(|product| NewProduct {
-            code: product.code,
-            description: product.description,
-            units: product.units,
-            pli: product.pli,
+        .map(|product| {
+            let (capacity, nicotine, packages) = match product.product_type {
+                ProductType::Pli => (Some(product.capacity), Some(product.nicotine), None),
+                ProductType::Pat => (None, None, Some(product.packages)),
+            };
+            NewProduct {
+                product_type: product.product_type,
+                code: product.code,
+                description: product.description,
+                units: product.units,
+                capacity,
+                nicotine,
+                packages,
+            }
         })
         .collect();
 
@@ -92,11 +104,20 @@ fn parse_product_row(row_index: usize, row: &ExcelRow) -> Result<ParsedProductRo
         "pli",
     )?;
 
+    let product_type = if pli_value == PLI_TRUE_VALUE {
+        ProductType::Pli
+    } else {
+        ProductType::Pat
+    };
+
     Ok(ParsedProductRow {
         code: code.to_string(),
         description: description.to_string(),
         units,
-        pli: pli_value == PLI_TRUE_VALUE,
+        product_type,
+        capacity: 0,
+        nicotine: 0,
+        packages: 0,
     })
 }
 
