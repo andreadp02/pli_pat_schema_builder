@@ -78,12 +78,16 @@ export async function createCustomer(input: NewCustomer): Promise<number> {
 export async function getCustomers(
 	page = 1,
 	pageSize = 50,
-	typologyFilter?: CustomerTypology | null
+	typologyFilter?: CustomerTypology | null,
+	taxCodeSearch?: string,
+	vatSearch?: string
 ): Promise<PaginatedCustomers> {
 	return invoke<PaginatedCustomers>('get_customers', {
 		page,
 		pageSize,
-		typologyFilter: typologyFilter === null ? undefined : typologyFilter
+		typologyFilter: typologyFilter === null ? undefined : typologyFilter,
+		taxCodeSearch: taxCodeSearch?.trim() || undefined,
+		vatSearch: vatSearch?.trim() || undefined
 	});
 }
 
@@ -91,6 +95,12 @@ export async function getCustomerByTaxCode(taxCode: number): Promise<Customer | 
 	if (!Number.isFinite(taxCode)) return null;
 
 	return invoke<Customer | null>('get_customer_by_tax_code', { taxCode });
+}
+
+export async function getCustomerByVatNumber(vatNumber: string): Promise<Customer | null> {
+	if (!vatNumber.trim()) return null;
+
+	return invoke<Customer | null>('get_customer_by_vat_number', { vatNumber });
 }
 
 export async function getCustomerById(id: number): Promise<Customer | null> {

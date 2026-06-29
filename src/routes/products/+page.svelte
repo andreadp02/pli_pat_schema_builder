@@ -3,9 +3,9 @@
 	import {
 		createProduct,
 		deleteProduct,
-		getProductByCode,
 		getProducts,
 		uploadProductsExcel,
+		uploadSkeletonExcel,
 		updateProduct,
 		type NewProduct,
 		type Product,
@@ -42,6 +42,7 @@
 	let successMsg = $state<string | null>(null);
 	let codeSearch = $state('');
 	let productTypeFilter = $state<'all' | 'pli' | 'pat'>('all');
+	let incompleteOnly = $state(false);
 
 	let showCreateForm = $state(false);
 	let newForm = $state<ProductForm>({ ...defaultForm });
@@ -59,16 +60,32 @@
 		return null;
 	}
 
-	function hasActiveCodeSearch(): boolean {
-		return codeSearch.trim().length > 0;
+	// Mirrors Product::is_skeleton_complete in the Rust backend: a product is usable for tracciati
+	// only once the skeleton has supplied its fields (PLI capacity+nicotine, PAT adm code).
+	function isComplete(product: Product): boolean {
+		return product.productType === 'pli'
+			? product.capacity != null && product.nicotine != null
+			: !!product.admCode;
 	}
+
+	// Base columns (ID, Code, Description, Units, Type, Actions) + the type-specific ones the
+	// current filter reveals: PLI → capacity+nicotine, PAT → packages+admCode+tabella, All → none.
+	const columnCount = $derived(
+		productTypeFilter === 'pli' ? 8 : productTypeFilter === 'pat' ? 9 : 6
+	);
 
 	async function loadPage(page: number): Promise<void> {
 		loading = true;
 		errorMsg = null;
 
 		try {
-			const result = await getProducts(page, pageSize, selectedProductTypeFilter());
+			const result = await getProducts(
+				page,
+				pageSize,
+				selectedProductTypeFilter(),
+				incompleteOnly,
+				codeSearch
+			);
 			products = result.items;
 			currentPage = result.page;
 			hasNextPage = result.hasNextPage;
@@ -80,33 +97,23 @@
 	}
 
 	async function onApplyFilters(): Promise<void> {
-		loading = true;
-		errorMsg = null;
 		successMsg = null;
+		await loadPage(1);
+	}
 
-		try {
-			if (codeSearch.trim()) {
-				const product = await getProductByCode(codeSearch, selectedProductTypeFilter());
-				products = product !== null ? [product] : [];
-				currentPage = 1;
-				hasNextPage = false;
-				return;
-			}
-
-			const result = await getProducts(1, pageSize, selectedProductTypeFilter());
-			products = result.items;
-			currentPage = result.page;
-			hasNextPage = result.hasNextPage;
-		} catch (err) {
-			errorMsg = String(err);
-		} finally {
-			loading = false;
-		}
+	// Live search while typing, but skip a single-character term (too broad) — Enter/Search forces it.
+	let searchTimer: ReturnType<typeof setTimeout> | undefined;
+	function onSearchInput(): void {
+		clearTimeout(searchTimer);
+		const term = codeSearch.trim();
+		if (term.length === 1) return;
+		searchTimer = setTimeout(() => onApplyFilters(), 250);
 	}
 
 	async function onResetFilters(): Promise<void> {
 		codeSearch = '';
 		productTypeFilter = 'all';
+		incompleteOnly = false;
 		successMsg = null;
 		await loadPage(1);
 	}
@@ -260,6 +267,32 @@
 		}
 	}
 
+	async function onUploadSkeletonExcel(): Promise<void> {
+		errorMsg = null;
+		successMsg = null;
+
+		const selected = await openDialog({
+			multiple: false,
+			directory: false,
+			filters: [{ name: 'Excel (.xlsx)', extensions: ['xlsx'] }]
+		});
+
+		if (!selected || Array.isArray(selected)) {
+			return;
+		}
+
+		saving = true;
+
+		try {
+			successMsg = await uploadSkeletonExcel(selected);
+			await loadPage(1);
+		} catch (err) {
+			errorMsg = String(err);
+		} finally {
+			saving = false;
+		}
+	}
+
 	$effect(() => {
 		loadPage(1);
 	});
@@ -289,6 +322,14 @@
 					</button>
 					<button
 						type="button"
+						onclick={onUploadSkeletonExcel}
+						class="rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-50"
+						disabled={saving}
+					>
+						Upload Skeleton
+					</button>
+					<button
+						type="button"
 						onclick={openCreateForm}
 						class="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800 disabled:opacity-50"
 						disabled={saving}
@@ -298,7 +339,7 @@
 					<div class="ml-2 flex items-center space-x-3">
 						<button
 							onclick={() => loadPage(currentPage - 1)}
-							disabled={currentPage === 1 || loading || saving || hasActiveCodeSearch()}
+							disabled={currentPage === 1 || loading || saving}
 							class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
 						>
 							Previous
@@ -306,7 +347,7 @@
 						<span class="text-sm text-slate-600">Page {currentPage}</span>
 						<button
 							onclick={() => loadPage(currentPage + 1)}
-							disabled={!hasNextPage || loading || saving || hasActiveCodeSearch()}
+							disabled={!hasNextPage || loading || saving}
 							class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
 						>
 							Next
@@ -320,12 +361,13 @@
 					event.preventDefault();
 					onApplyFilters();
 				}}
-				class="mb-4 grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-[2fr_1fr_auto_auto]"
+				class="mb-4 grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-[2fr_1fr_auto_auto_auto]"
 			>
 				<input
 					type="text"
 					placeholder="Search by code"
 					bind:value={codeSearch}
+					oninput={onSearchInput}
 					class="rounded-md border border-slate-300 px-3 py-2 text-sm"
 				/>
 				<select bind:value={productTypeFilter} class="rounded-md border border-slate-300 px-3 py-2 text-sm">
@@ -333,6 +375,10 @@
 					<option value="pli">PLI</option>
 					<option value="pat">PAT</option>
 				</select>
+				<label class="flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 whitespace-nowrap">
+					<input type="checkbox" bind:checked={incompleteOnly} class="rounded border-slate-300" />
+					Incomplete only
+				</label>
 				<button
 					type="submit"
 					disabled={loading || saving}
@@ -439,20 +485,25 @@
 							<th class="px-3 py-3">Description</th>
 							<th class="px-3 py-3">Units</th>
 							<th class="px-3 py-3">Type</th>
-							<th class="px-3 py-3">Capacity</th>
-							<th class="px-3 py-3">Nicotine</th>
-							<th class="px-3 py-3">Packages</th>
+							{#if productTypeFilter === 'pli'}
+								<th class="px-3 py-3">Capacity</th>
+								<th class="px-3 py-3">Nicotine</th>
+							{:else if productTypeFilter === 'pat'}
+								<th class="px-3 py-3">Packages</th>
+								<th class="px-3 py-3">ADM Code</th>
+								<th class="px-3 py-3">Tabella</th>
+							{/if}
 							<th class="px-3 py-3">Actions</th>
 						</tr>
 					</thead>
 					<tbody>
 						{#if loading}
 							<tr>
-								<td colspan="9" class="px-3 py-6 text-center text-sm text-slate-500">Loading products...</td>
+								<td colspan={columnCount} class="px-3 py-6 text-center text-sm text-slate-500">Loading products...</td>
 							</tr>
 						{:else if products.length === 0}
 							<tr>
-								<td colspan="9" class="px-3 py-6 text-center text-sm text-slate-500">No products found.</td>
+								<td colspan={columnCount} class="px-3 py-6 text-center text-sm text-slate-500">No products found.</td>
 							</tr>
 						{:else}
 							{#each products as product (`${product.productType}-${product.id}`)}
@@ -471,42 +522,20 @@
 										<td class="px-3 py-3">
 											<span class="text-sm text-slate-600">{editForm.productType.toUpperCase()}</span>
 										</td>
-										<td class="px-3 py-3">
-											{#if editForm.productType === 'pli'}
-												<input
-													type="number"
-													min="0"
-													bind:value={editForm.capacity}
-													class="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm"
-												/>
-											{:else}
-												<span class="text-sm text-slate-500">-</span>
-											{/if}
-										</td>
-										<td class="px-3 py-3">
-											{#if editForm.productType === 'pli'}
-												<input
-													type="number"
-													min="0"
-													bind:value={editForm.nicotine}
-													class="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm"
-												/>
-											{:else}
-												<span class="text-sm text-slate-500">-</span>
-											{/if}
-										</td>
-										<td class="px-3 py-3">
-											{#if editForm.productType === 'pat'}
-												<input
-													type="number"
-													min="0"
-													bind:value={editForm.packages}
-													class="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm"
-												/>
-											{:else}
-												<span class="text-sm text-slate-500">-</span>
-											{/if}
-										</td>
+										{#if productTypeFilter === 'pli'}
+											<td class="px-3 py-3">
+												<input type="number" min="0" bind:value={editForm.capacity} class="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm" />
+											</td>
+											<td class="px-3 py-3">
+												<input type="number" min="0" bind:value={editForm.nicotine} class="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm" />
+											</td>
+										{:else if productTypeFilter === 'pat'}
+											<td class="px-3 py-3">
+												<input type="number" min="0" bind:value={editForm.packages} class="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm" />
+											</td>
+											<td class="px-3 py-3 text-sm text-slate-700">{product.admCode ?? '-'}</td>
+											<td class="px-3 py-3 text-sm text-slate-700">{product.tabella ?? '-'}</td>
+										{/if}
 										<td class="px-3 py-3">
 											<div class="flex gap-2">
 												<button
@@ -524,13 +553,30 @@
 											</div>
 										</td>
 									{:else}
-										<td class="px-3 py-3 text-sm text-slate-700">{product.code}</td>
+										<td class="px-3 py-3 text-sm text-slate-700">
+											<div class="flex items-center gap-2">
+												<span>{product.code}</span>
+												{#if !isComplete(product)}
+													<span
+														class="rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700"
+														title="Skeleton not uploaded — excluded from tracciati"
+													>
+														Incomplete
+													</span>
+												{/if}
+											</div>
+										</td>
 										<td class="px-3 py-3 text-sm text-slate-700">{product.description}</td>
 										<td class="px-3 py-3 text-sm text-slate-700">{product.units}</td>
 										<td class="px-3 py-3 text-sm text-slate-700">{product.productType.toUpperCase()}</td>
-										<td class="px-3 py-3 text-sm text-slate-700">{product.capacity ?? '-'}</td>
-										<td class="px-3 py-3 text-sm text-slate-700">{product.nicotine ?? '-'}</td>
-										<td class="px-3 py-3 text-sm text-slate-700">{product.packages ?? '-'}</td>
+										{#if productTypeFilter === 'pli'}
+											<td class="px-3 py-3 text-sm text-slate-700">{product.capacity ?? '-'}</td>
+											<td class="px-3 py-3 text-sm text-slate-700">{product.nicotine ?? '-'}</td>
+										{:else if productTypeFilter === 'pat'}
+											<td class="px-3 py-3 text-sm text-slate-700">{product.packages ?? '-'}</td>
+											<td class="px-3 py-3 text-sm text-slate-700">{product.admCode ?? '-'}</td>
+											<td class="px-3 py-3 text-sm text-slate-700">{product.tabella ?? '-'}</td>
+										{/if}
 										<td class="px-3 py-3">
 											<div class="flex gap-2">
 												<button
@@ -559,7 +605,7 @@
 			<div class="mt-5 flex items-center justify-end space-x-3">
 				<button
 					onclick={() => loadPage(currentPage - 1)}
-					disabled={currentPage === 1 || loading || saving || hasActiveCodeSearch()}
+					disabled={currentPage === 1 || loading || saving}
 					class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
 				>
 					Previous
@@ -569,7 +615,7 @@
 				</span>
 				<button
 					onclick={() => loadPage(currentPage + 1)}
-					disabled={!hasNextPage || loading || saving || hasActiveCodeSearch()}
+					disabled={!hasNextPage || loading || saving}
 					class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
 				>
 					Next

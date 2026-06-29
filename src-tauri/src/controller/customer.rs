@@ -23,14 +23,23 @@ pub async fn get_customers(
     page: u32,
     page_size: u32,
     typology_filter: Option<String>,
+    tax_code_search: Option<String>,
+    vat_search: Option<String>,
 ) -> Result<PaginatedCustomers, String> {
     if page_size > MAX_COSTUMERS_PAGE_SIZE {
         return Err(format!("page_size cannot exceed {MAX_COSTUMERS_PAGE_SIZE}"));
     }
     let db_path = resolve_db_path(&app_handle)?;
-    customer::get_customers(db_path, page.max(1), page_size.max(1), typology_filter)
-        .await
-        .map_err(|e| e.to_string())
+    customer::get_customers(
+        db_path,
+        page.max(1),
+        page_size.max(1),
+        typology_filter,
+        tax_code_search,
+        vat_search,
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[command]
@@ -40,6 +49,17 @@ pub async fn get_customer_by_tax_code(
 ) -> Result<Option<customer::Customer>, String> {
     let db_path = resolve_db_path(&app_handle)?;
     customer::get_customer_by_tax_code(db_path, tax_code)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn get_customer_by_vat_number(
+    app_handle: AppHandle,
+    vat_number: String,
+) -> Result<Option<customer::Customer>, String> {
+    let db_path = resolve_db_path(&app_handle)?;
+    customer::get_customer_by_vat_number(db_path, vat_number)
         .await
         .map_err(|e| e.to_string())
 }

@@ -71,9 +71,18 @@ pub async fn get_customers(
     page: u32,
     page_size: u32,
     typology_filter: Option<String>,
+    tax_code_search: Option<String>,
+    vat_search: Option<String>,
 ) -> Result<PaginatedCustomers, AppError> {
     tauri::async_runtime::spawn_blocking(move || {
-        get_customers_sync(db_path.as_path(), page, page_size, typology_filter)
+        get_customers_sync(
+            db_path.as_path(),
+            page,
+            page_size,
+            typology_filter,
+            tax_code_search.as_deref(),
+            vat_search.as_deref(),
+        )
     })
         .await
         .map_err(|e| AppError::Processing(format!("Get customers task failed: {e}")))?
@@ -88,6 +97,17 @@ pub async fn get_customer_by_tax_code(
     })
     .await
     .map_err(|e| AppError::Processing(format!("Get customer by tax code task failed: {e}")))?
+}
+
+pub async fn get_customer_by_vat_number(
+    db_path: PathBuf,
+    vat_number: String,
+) -> Result<Option<Customer>, AppError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        get_customer_by_vat_number_sync(db_path.as_path(), &vat_number)
+    })
+    .await
+    .map_err(|e| AppError::Processing(format!("Get customer by vat number task failed: {e}")))?
 }
 
 pub async fn get_customer_by_id(db_path: PathBuf, id: i64) -> Result<Option<Customer>, AppError> {
@@ -232,6 +252,8 @@ fn get_customers_sync(
     page: u32,
     page_size: u32,
     typology_filter: Option<String>,
+    tax_code_search: Option<&str>,
+    vat_search: Option<&str>,
 ) -> Result<PaginatedCustomers, AppError> {
     let offset = (page.saturating_sub(1) as u64) * (page_size as u64);
     let conn = open_connection(db_path)?;
@@ -243,11 +265,26 @@ fn get_customers_sync(
          JOIN municipality m ON m.id = c.municipality_id",
     );
     let mut params_values: Vec<Value> = Vec::new();
+    let mut conditions: Vec<&str> = Vec::new();
 
     if let Some(raw_typology) = typology_filter {
         let normalized_typology = normalize_typology(&raw_typology)?;
-        query.push_str(" WHERE c.typology = ?");
+        conditions.push("c.typology = ?");
         params_values.push(Value::from(normalized_typology));
+    }
+    // Case-insensitive substring matches (SQLite LIKE); tax_code is an integer, so cast to text.
+    if let Some(term) = tax_code_search.map(str::trim).filter(|t| !t.is_empty()) {
+        conditions.push("CAST(c.tax_code AS TEXT) LIKE ?");
+        params_values.push(Value::from(format!("%{term}%")));
+    }
+    if let Some(term) = vat_search.map(str::trim).filter(|t| !t.is_empty()) {
+        conditions.push("c.vat_number LIKE ?");
+        params_values.push(Value::from(format!("%{term}%")));
+    }
+
+    if !conditions.is_empty() {
+        query.push_str(" WHERE ");
+        query.push_str(&conditions.join(" AND "));
     }
 
     query.push_str(" ORDER BY c.id DESC LIMIT ? OFFSET ?");
@@ -288,6 +325,31 @@ fn get_customer_by_tax_code_sync(db_path: &Path, tax_code: i64) -> Result<Option
          WHERE c.tax_code = ?1
          LIMIT 1",
         params![tax_code],
+        map_customer_row,
+    )
+    .optional()
+    .map_err(|e| AppError::Processing(e.to_string()))
+}
+
+fn get_customer_by_vat_number_sync(
+    db_path: &Path,
+    vat_number: &str,
+) -> Result<Option<Customer>, AppError> {
+    let trimmed = vat_number.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+
+    let conn = open_connection(db_path)?;
+
+    conn.query_row(
+        "SELECT c.id, c.tax_code, c.ordinal_number, c.typology, c.vat_number, c.address,
+                m.id, m.name, m.province_name
+         FROM customer c
+         JOIN municipality m ON m.id = c.municipality_id
+         WHERE c.vat_number = ?1
+         LIMIT 1",
+        params![trimmed],
         map_customer_row,
     )
     .optional()

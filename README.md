@@ -67,14 +67,18 @@ flowchart TD
    The **description does *not* come from these files** — it comes from the skeleton files
    (next step).
 4. The user then uploads the **skeleton files** (`skeleton_pli`, `skeleton_pat`). Matching on
-   the **product code**, the app fills in the **`description`** (both PLI and PAT) and the
-   **`capacity`** + **`nicotine`** (PLI only).
+   the **product code**, the app fills in the **`description`** (both PLI and PAT), the
+   **`capacity`** + **`nicotine`** (PLI only), the **`admCode`** and **`tabella`** (PAT only —
+   written to `tracciati_pat` columns L and K). Import owns `{units, packages}` and the skeleton
+   owns `{description, capacity, nicotine, admCode, tabella}`, so a re-import never wipes skeleton
+   data. (`gruppo` only classifies PLI vs PAT at import; the persisted `tabella` value comes from
+   `skeleton_pat`.)
 
-> **Known fixes (import is implemented but not yet correct):** save PAT `units` from the
-> info4 column and `packages` from the info3 column, and take the `description` from the
-> skeleton files instead of from the info3/info4 files. See
-> [`src-tauri/src/service/product.rs`](src-tauri/src/service/product.rs) (`capacity`,
-> `nicotine`, `packages` are currently hard-coded to `0`).
+The import (`service/product::upload_products_excel`) leaves the skeleton-owned fields **NULL**;
+uploading the skeletons then fills the real values (`service/product::upload_skeleton_excel`). A
+product still missing its skeleton data is **incomplete** (PLI lacking capacity/nicotine, PAT
+lacking admCode): it is tagged in the products table and **skipped** during tracciati generation
+(reported as a warning) — see `Product::is_skeleton_complete`.
 
 ### 2. Customers
 
@@ -101,8 +105,8 @@ invoice:
    customer `typology` is **`RIVENDITA`**; otherwise it is left **empty**. For PLI, the tax
    code goes in a **separate dedicated column**.
 
-> The output transformation is **not yet implemented** — see [Status](#status). The current
-> `service/excel::process_excel` only copies the input into two placeholder outputs.
+> Implemented in `service/excel::generate_tracciati` (one user-selected period per run is written
+> to every row). See [Status](#status) for what still needs verifying against the real templates.
 
 ---
 
@@ -219,10 +223,16 @@ PLI and PAT are separate tables (PLI carries `capacity` + `nicotine`, PAT carrie
 
 ## Status
 
-> The core Excel transformation is **not yet implemented**. `service/excel::process_excel`
-> currently just copies the input file into two outputs (`*_output1.xlsx`,
-> `*_output2.xlsx`). The PLI/PAT calculation logic from invoices is still to be written,
-> and invoices do not yet have their own domain/table.
+> The full workflow is implemented: the info3/info4 import, the skeleton enrichment
+> (`service/product::upload_skeleton_excel`), invoice parsing (`service/invoice`), and the
+> invoice → tracciati generation (`service/excel::generate_tracciati`, filling the bundled
+> templates in `src-tauri/resources/` via `repository/excel::fill_template`).
+>
+> **Pending verification against the real saved templates** (`src-tauri/resources/*.xlsx`
+> currently hold the blank ADM samples): confirm the data-start rows, which columns carry
+> formulas, and the real `skeleton_pat` layout. The reporting period is a single value written
+> verbatim to both tracciati — PLI ("Data mese") and PAT ("Data fine quindicina") may need
+> different formats.
 
 ---
 

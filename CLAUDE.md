@@ -132,11 +132,11 @@ DB SQLite in `app_data_dir`, file **`pli_pat.db`** (vedi `utils::DB_FILE_NAME`).
 
 | Tabella | Note |
 |---------|------|
-| `product` | `product_type` ('pli'/'pat', CHECK), `code` UNIQUE non vuoto, `description`, `units`, e i campi opzionali per tipo: **`capacity`**+**`nicotine`** (PLI), **`packages`** (PAT) |
+| `product` | `product_type` ('pli'/'pat', CHECK), `code` UNIQUE non vuoto, `description`, `units`, e i campi opzionali per tipo: **`capacity`**+**`nicotine`** (PLI), **`packages`** (PAT). Più `adm_code` (codice ADM, PAT → tracciati_pat col L) e `tabella` (PAT → tracciati_pat col K), entrambi dallo **scheletro**. Migrazione idempotente in `lib.rs` (`add_column_if_missing`) per DB esistenti |
 | `customer` | `tax_code` UNIQUE, `ordinal_number`, `typology` (CHECK enum), `vat_number` UNIQUE nullable, `address`, `municipality_id` FK |
 | `municipality` | `name` + `province_name`, UNIQUE(name, province_name) |
 
-- **PLI vs PAT:** un'unica tabella `product` discriminata da `product_type`. I campi specifici (PLI: capacity+nicotine; PAT: packages) sono colonne nullable, con un `CHECK` che impone l'invariante per tipo (PLI ha capacity+nicotine e packages NULL; PAT il contrario). `code` è UNIQUE globale: la ricerca per codice è una sola query indicizzata. Esposta al frontend come tipo `Product` con campi opzionali.
+- **PLI vs PAT:** un'unica tabella `product` discriminata da `product_type`. I campi specifici sono colonne nullable, con un `CHECK` che impone solo la *forma* per tipo (PLI ha `packages` NULL; PAT ha `capacity`/`nicotine` NULL). I campi posseduti dallo scheletro restano NULL fino all'upload: un prodotto **incompleto** (PLI senza capacity/nicotine, PAT senza adm_code) è taggato in UI e **saltato** nella generazione tracciati — vedi `Product::is_skeleton_complete`. `code` è UNIQUE globale: la ricerca per codice è una sola query indicizzata. Esposta al frontend come tipo `Product` con campi opzionali.
 - **`customer.typology`** ammette solo: `'ESERCIZIO DI VICINATO'`, `'RIVENDITA'`, `'FARMACIA'`, `'PARAFARMACIA'`.
 - **Provincia ambigua:** in import clienti, se un comune mappa a più province, la riga è "ambigua" e il frontend deve far scegliere la provincia. Flusso a due fasi: `validate_customers_excel` → utente risolve → `confirm_customers_excel_upload` (vedi `service/customer.rs`).
 
@@ -154,9 +154,10 @@ Usali come riferimento per la struttura esatta delle celle. **Non** assumere str
 
 ## Stato attuale / gotchas (verificare prima di lavorarci)
 
-- **Il cuore della trasformazione Excel NON è ancora implementato.** `service/excel::process_excel` al momento **copia e basta** il file di input in due output (`*_output1.xlsx`, `*_output2.xlsx`). La logica di calcolo dei prospetti PLI/PAT dalle fatture è da scrivere. Le fatture non hanno ancora un dominio/tabella propri.
-- **Import prodotti implementato ma da correggere** (`service/product.rs`): `capacity`, `nicotine` e `packages` sono **hard-coded a `0`** e la `description` viene presa dal file info3/info4. Fix attesi: per PAT salvare `units` da info4 e `packages` da info3; prendere la `description` dagli **scheletri** (`skeleton_pli`/`skeleton_pat`) matchando sul `code`, e da lì anche `capacity` + `nicotine` (PLI).
-- **`repository/excel::write_excel` non è ancora usato** (warning `never used`): è pronto per quando verrà scritta la generazione dei prospetti.
+- **Flusso completo implementato.** Import info3/info4 (`service/product::upload_products_excel`), scheletri (`upload_skeleton_excel`), parsing fatture (`service/invoice`), generazione `service/excel::generate_tracciati` che riempie i template salvati in `src-tauri/resources/` via `repository/excel::fill_template` (umya-spreadsheet, modifica in-place: costanti/formule preservate, formule copiate verso il basso). Comando `generate_tracciati` (multi-fattura + periodo unico).
+- **Da verificare con i template/scheletri REALI** (in `src-tauri/resources/` ora ci sono i campioni ADM vuoti): righe di inizio dati, quali colonne sono formule (col `P`), layout reale di `skeleton_pat` (code col Q, desc col M, adm col L). Il `period` è un'unica stringa scritta uguale su PLI ("Data mese") e PAT ("Data fine quindicina"): potrebbero servire formati diversi.
+- **Ownership campi prodotto:** import possiede `{product_type, units, packages}`, scheletro possiede `{description, capacity, nicotine, adm_code, tabella}`. La UPSERT di re-import (`build_product_batch_insert_sql`) aggiorna solo i campi import; lo scheletro fa UPDATE-by-code (`update_products_from_skeleton`) con COALESCE per non azzerare l'altro lato. I campi dello scheletro restano **NULL** all'import (niente più placeholder `0`) finché non arriva lo scheletro. `gruppo` serve solo a classificare PLI/PAT; il valore `tabella` viene da `skeleton_pat`.
+- **`repository/excel::write_excel` non è più usato** (warning `never used`): la generazione usa `fill_template`. Eliminabile.
 - Branch di lavoro corrente: `dev` (main = `main`).
 
 ---

@@ -11,6 +11,8 @@ export type Product = {
 	capacity: number | null;
 	nicotine: number | null;
 	packages: number | null;
+	admCode: string | null;
+	tabella: number | null;
 };
 
 export type NewProduct = {
@@ -21,6 +23,8 @@ export type NewProduct = {
 	capacity?: number | null;
 	nicotine?: number | null;
 	packages?: number | null;
+	admCode?: string | null;
+	tabella?: number | null;
 };
 
 export type UpdateProduct = {
@@ -46,12 +50,16 @@ export async function createProduct(input: NewProduct): Promise<number> {
 export async function getProducts(
 	page = 1,
 	pageSize = 50,
-	productTypeFilter?: ProductType | null
+	productTypeFilter?: ProductType | null,
+	incompleteOnly = false,
+	codeSearch?: string
 ): Promise<PaginatedProducts> {
 	return invoke<PaginatedProducts>('get_products', {
 		page,
 		pageSize,
-		productTypeFilter: productTypeFilter ?? undefined
+		productTypeFilter: productTypeFilter ?? undefined,
+		incompleteOnly,
+		codeSearch: codeSearch?.trim() || undefined
 	});
 }
 
@@ -80,4 +88,8 @@ export async function deleteProduct(id: number): Promise<boolean> {
 
 export async function uploadProductsExcel(filePath: string): Promise<string> {
 	return invoke<string>('upload_products_excel', { filePath });
+}
+
+export async function uploadSkeletonExcel(filePath: string): Promise<string> {
+	return invoke<string>('upload_skeleton_excel', { filePath });
 }

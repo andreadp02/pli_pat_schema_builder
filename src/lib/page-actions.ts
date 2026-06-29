@@ -1,39 +1,39 @@
-export type ProcessResult = {
-	output1: string;
-	output2: string;
+export type GenerateResult = {
+	tracciatiPli: string;
+	tracciatiPat: string;
+	warnings: string[];
 };
 
 export type PageState = {
-	selectedFile: string | null;
+	selectedFiles: string[];
 	outputDir: string | null;
+	period: string;
 	processing: boolean;
-	result: ProcessResult | null;
+	result: GenerateResult | null;
 	errorMsg: string | null;
 };
 
 type ActionDeps = {
 	openDialog: (options: Record<string, unknown>) => Promise<string | string[] | null>;
 	dirnamePath: (path: string) => Promise<string>;
-	invokeCommand: <T>(
-		command: string,
-		args?: Record<string, unknown>
-	) => Promise<T>;
+	invokeCommand: <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 };
 
-export async function pickInputFile(state: PageState, deps: ActionDeps): Promise<void> {
-	const file = await deps.openDialog({
-		multiple: false,
+export async function pickInvoiceFiles(state: PageState, deps: ActionDeps): Promise<void> {
+	const files = await deps.openDialog({
+		multiple: true,
 		filters: [{ name: 'Excel Files', extensions: ['xlsx', 'xls'] }]
 	});
 
-	if (typeof file === 'string') {
-		state.selectedFile = file;
-		if (!state.outputDir) {
-			state.outputDir = await deps.dirnamePath(file);
-		}
-		state.result = null;
-		state.errorMsg = null;
+	const list = Array.isArray(files) ? files : files ? [files] : [];
+	if (list.length === 0) return;
+
+	state.selectedFiles = list;
+	if (!state.outputDir) {
+		state.outputDir = await deps.dirnamePath(list[0]);
 	}
+	state.result = null;
+	state.errorMsg = null;
 }
 
 export async function pickOutputDir(state: PageState, deps: ActionDeps): Promise<void> {
@@ -46,19 +46,19 @@ export async function pickOutputDir(state: PageState, deps: ActionDeps): Promise
 	}
 }
 
-export async function processFile(state: PageState, deps: ActionDeps): Promise<void> {
-	if (!state.selectedFile || !state.outputDir) return;
+export async function generate(state: PageState, deps: ActionDeps): Promise<void> {
+	if (state.selectedFiles.length === 0 || !state.outputDir || !state.period.trim()) return;
 
 	state.processing = true;
 	state.result = null;
 	state.errorMsg = null;
 
 	try {
-		const res = await deps.invokeCommand<ProcessResult>('process_excel_file', {
-			inputPath: state.selectedFile,
+		state.result = await deps.invokeCommand<GenerateResult>('generate_tracciati', {
+			invoicePaths: state.selectedFiles,
+			period: state.period.trim(),
 			outputDir: state.outputDir
 		});
-		state.result = res;
 	} catch (e: unknown) {
 		state.errorMsg = String(e);
 	} finally {
@@ -66,11 +66,21 @@ export async function processFile(state: PageState, deps: ActionDeps): Promise<v
 	}
 }
 
+export function removeFile(state: PageState, file: string): void {
+	state.selectedFiles = state.selectedFiles.filter((f) => f !== file);
+	state.result = null;
+	state.errorMsg = null;
+}
+
+export async function openOutput(path: string, deps: ActionDeps): Promise<void> {
+	await deps.invokeCommand('open_path', { path });
+}
+
 export function reset(state: PageState): void {
-	state.selectedFile = null;
+	state.selectedFiles = [];
+	state.period = '';
 	if (typeof window !== 'undefined') {
-		const savedDir = window.localStorage.getItem('defaultOutputDir');
-		state.outputDir = savedDir || null;
+		state.outputDir = window.localStorage.getItem('defaultOutputDir') || null;
 	} else {
 		state.outputDir = null;
 	}

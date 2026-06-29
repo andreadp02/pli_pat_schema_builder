@@ -46,6 +46,21 @@ fn window_start_dragging(window: tauri::Window) -> Result<(), String> {
     window.start_dragging().map_err(|e| e.to_string())
 }
 
+/// Open a file with the OS default handler (e.g. the generated tracciati in Excel).
+// ponytail: std::process instead of tauri-plugin-opener — saves a dependency for 3 lines.
+#[tauri::command]
+fn open_path(path: String) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    let result = std::process::Command::new("cmd")
+        .args(["/C", "start", "", &path])
+        .spawn();
+    #[cfg(target_os = "macos")]
+    let result = std::process::Command::new("open").arg(&path).spawn();
+    #[cfg(target_os = "linux")]
+    let result = std::process::Command::new("xdg-open").arg(&path).spawn();
+    result.map(|_| ()).map_err(|e| e.to_string())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
@@ -74,7 +89,8 @@ pub fn run() {
             window_toggle_maximize,
             window_close,
             window_start_dragging,
-            controller::excel::process_excel_file,
+            open_path,
+            controller::tracciati::generate_tracciati,
             controller::product::create_product,
             controller::product::get_products,
             controller::product::get_product_by_id,
@@ -82,9 +98,11 @@ pub fn run() {
             controller::product::update_product,
             controller::product::delete_product,
             controller::product::upload_products_excel,
+            controller::product::upload_skeleton_excel,
             controller::customer::create_customer,
             controller::customer::get_customers,
             controller::customer::get_customer_by_tax_code,
+            controller::customer::get_customer_by_vat_number,
             controller::customer::get_customer_by_id,
             controller::customer::update_customer,
             controller::customer::delete_customer,
@@ -110,14 +128,46 @@ fn ensure_product_table_on_startup(app: &tauri::AppHandle) -> Result<(), String>
             capacity INTEGER,
             nicotine INTEGER,
             packages INTEGER,
+            adm_code TEXT,
+            tabella INTEGER,
             CHECK (
-                (product_type = 'pli' AND capacity IS NOT NULL AND nicotine IS NOT NULL AND packages IS NULL)
-             OR (product_type = 'pat' AND packages IS NOT NULL AND capacity IS NULL AND nicotine IS NULL)
+                (product_type = 'pli' AND packages IS NULL)
+             OR (product_type = 'pat' AND capacity IS NULL AND nicotine IS NULL)
             )
         )",
         [],
     )
     .map_err(|e| e.to_string())?;
+
+    // Idempotent migration for DBs created before adm_code/tabella existed.
+    add_column_if_missing(&conn, "product", "adm_code", "TEXT")?;
+    add_column_if_missing(&conn, "product", "tabella", "INTEGER")?;
+
+    Ok(())
+}
+
+/// Adds `ALTER TABLE <table> ADD COLUMN <column> <decl>` only when the column is absent.
+fn add_column_if_missing(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    decl: &str,
+) -> Result<(), String> {
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info(?1) WHERE name = ?2",
+            rusqlite::params![table, column],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    if count == 0 {
+        conn.execute(
+            &format!("ALTER TABLE {table} ADD COLUMN {column} {decl}"),
+            [],
+        )
+        .map_err(|e| e.to_string())?;
+    }
 
     Ok(())
 }

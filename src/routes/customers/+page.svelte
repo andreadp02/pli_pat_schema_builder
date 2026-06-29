@@ -6,7 +6,6 @@
 		confirmCustomersExcelUpload,
 		createCustomer,
 		deleteCustomer,
-		getCustomerByTaxCode,
 		getCustomers,
 		updateCustomer,
 		validateCustomersExcel,
@@ -45,6 +44,7 @@
 	let errorMsg = $state<string | null>(null);
 	let successMsg = $state<string | null>(null);
 	let taxCodeSearch = $state('');
+	let vatSearch = $state('');
 	let typologyFilter = $state<'all' | CustomerTypology>('all');
 	let pendingUploadPath = $state<string | null>(null);
 	let ambiguousRows = $state<AmbiguousUploadRow[]>([]);
@@ -96,16 +96,18 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 		return typologyFilter;
 	}
 
-	function hasActiveTaxCodeSearch(): boolean {
-		return taxCodeSearch.trim().length > 0;
-	}
-
 	async function loadPage(page: number): Promise<void> {
 		loading = true;
 		errorMsg = null;
 
 		try {
-			const result = await getCustomers(page, pageSize, selectedTypologyFilter());
+			const result = await getCustomers(
+				page,
+				pageSize,
+				selectedTypologyFilter(),
+				taxCodeSearch,
+				vatSearch
+			);
 			customers = result.items;
 			currentPage = result.page;
 			hasNextPage = result.hasNextPage;
@@ -117,46 +119,23 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 	}
 
 	async function onApplyFilters(): Promise<void> {
-		loading = true;
-		errorMsg = null;
 		successMsg = null;
+		await loadPage(1);
+	}
 
-		try {
-			const trimmedTaxCode = taxCodeSearch.trim();
-			if (trimmedTaxCode) {
-				const parsedTaxCode = Number(trimmedTaxCode);
-				if (!Number.isInteger(parsedTaxCode)) {
-					errorMsg = 'Tax code must be a valid integer.';
-					customers = [];
-					currentPage = 1;
-					hasNextPage = false;
-					return;
-				}
-
-				const customer = await getCustomerByTaxCode(parsedTaxCode);
-				const typology = selectedTypologyFilter();
-				const matchesTypology =
-					typology === null || (customer !== null && customer.typology === typology);
-
-				customers = customer !== null && matchesTypology ? [customer] : [];
-				currentPage = 1;
-				hasNextPage = false;
-				return;
-			}
-
-			const result = await getCustomers(1, pageSize, selectedTypologyFilter());
-			customers = result.items;
-			currentPage = result.page;
-			hasNextPage = result.hasNextPage;
-		} catch (err) {
-			errorMsg = String(err);
-		} finally {
-			loading = false;
-		}
+	// Live search while typing, but skip when the only term entered is a single char (too broad).
+	// Enter/Search forces it. Cleared fields (length 0) reload the full list.
+	let searchTimer: ReturnType<typeof setTimeout> | undefined;
+	function onSearchInput(): void {
+		clearTimeout(searchTimer);
+		const terms = [taxCodeSearch, vatSearch].map((t) => t.trim()).filter((t) => t.length > 0);
+		if (terms.length > 0 && !terms.some((t) => t.length >= 2)) return;
+		searchTimer = setTimeout(() => onApplyFilters(), 250);
 	}
 
 	async function onResetFilters(): Promise<void> {
 		taxCodeSearch = '';
+		vatSearch = '';
 		typologyFilter = 'all';
 		successMsg = null;
 		await loadPage(1);
@@ -369,7 +348,7 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 					<div class="ml-2 flex items-center space-x-3">
 						<button
 							onclick={() => loadPage(currentPage - 1)}
-							disabled={currentPage === 1 || loading || saving || hasActiveTaxCodeSearch()}
+							disabled={currentPage === 1 || loading || saving}
 							class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
 						>
 							Previous
@@ -377,7 +356,7 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 						<span class="text-sm text-slate-600">Page {currentPage}</span>
 						<button
 							onclick={() => loadPage(currentPage + 1)}
-							disabled={!hasNextPage || loading || saving || hasActiveTaxCodeSearch()}
+							disabled={!hasNextPage || loading || saving}
 							class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
 						>
 							Next
@@ -399,12 +378,20 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 					event.preventDefault();
 					onApplyFilters();
 				}}
-				class="mb-4 grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-[2fr_1fr_auto_auto]"
+				class="mb-4 grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-[2fr_2fr_1fr_auto_auto]"
 			>
 				<input
 					type="text"
 					placeholder="Search by tax code"
 					bind:value={taxCodeSearch}
+					oninput={onSearchInput}
+					class="rounded-md border border-slate-300 px-3 py-2 text-sm"
+				/>
+				<input
+					type="text"
+					placeholder="Search by VAT"
+					bind:value={vatSearch}
+					oninput={onSearchInput}
 					class="rounded-md border border-slate-300 px-3 py-2 text-sm"
 				/>
 				<select bind:value={typologyFilter} class="rounded-md border border-slate-300 px-3 py-2 text-sm">
@@ -534,7 +521,7 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 			<div class="mt-5 flex items-center justify-end space-x-3">
 				<button
 					onclick={() => loadPage(currentPage - 1)}
-					disabled={currentPage === 1 || loading || saving || hasActiveTaxCodeSearch()}
+					disabled={currentPage === 1 || loading || saving}
 					class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
 				>
 					Previous
@@ -544,7 +531,7 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 				</span>
 				<button
 					onclick={() => loadPage(currentPage + 1)}
-					disabled={!hasNextPage || loading || saving || hasActiveTaxCodeSearch()}
+					disabled={!hasNextPage || loading || saving}
 					class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
 				>
 					Next

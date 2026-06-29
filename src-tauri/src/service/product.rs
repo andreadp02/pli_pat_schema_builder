@@ -1,29 +1,19 @@
+use std::collections::HashSet;
 use std::path::Path;
 
 use crate::repository::excel as excel_repository;
-use crate::repository::product::{self, NewProduct, ProductType};
+use crate::repository::product::{self, NewProduct, ProductType, SkeletonUpdate};
 use crate::service::excel::ExcelRow;
 use crate::utils::parse_i64;
 use crate::AppError;
 
-const CODE_COLUMN_INDEX: usize = 5; // F
-const DESCRIPTION_COLUMN_INDEX: usize = 6; // G
-const UNITS_COLUMN_INDEX: usize = 8; // I
-const PLI_COLUMN_INDEX: usize = 10; // K
+const CODE_COLUMN_INDEX: usize = 5; // F = Prodotto (product code)
+const INFO3_COLUMN_INDEX: usize = 8; // I = Info 3 (PLI units / PAT packages)
+const INFO4_COLUMN_INDEX: usize = 9; // J = Info 4 (PAT units)
+const GRUPPO_COLUMN_INDEX: usize = 10; // K = gruppo (5 = PLI, other number = PAT, empty = skip)
 const DATA_START_ROW_INDEX: usize = 1;
-const PLI_TRUE_VALUE: i64 = 5;
+const PLI_GRUPPO_VALUE: i64 = 5;
 const INSERT_BATCH_SIZE: usize = 200;
-
-#[derive(Debug)]
-struct ParsedProductRow {
-    code: String,
-    description: String,
-    units: u32,
-    product_type: ProductType,
-    capacity: u32,
-    nicotine: u32,
-    packages: u32,
-}
 
 pub async fn upload_products_excel(file_path: &Path, db_path: &Path) -> Result<String, AppError> {
     if !file_path.is_file() {
@@ -49,26 +39,7 @@ pub async fn upload_products_excel(file_path: &Path, db_path: &Path) -> Result<S
         ));
     }
 
-    let products = parse_products_rows(&rows)?;
-
-    let new_products: Vec<NewProduct> = products
-        .into_iter()
-        .map(|product| {
-            let (capacity, nicotine, packages) = match product.product_type {
-                ProductType::Pli => (Some(product.capacity), Some(product.nicotine), None),
-                ProductType::Pat => (None, None, Some(product.packages)),
-            };
-            NewProduct {
-                product_type: product.product_type,
-                code: product.code,
-                description: product.description,
-                units: product.units,
-                capacity,
-                nicotine,
-                packages,
-            }
-        })
-        .collect();
+    let new_products = parse_products_rows(&rows)?;
 
     let inserted = product::create_products_in_batches(
         db_path.to_path_buf(),
@@ -80,45 +51,274 @@ pub async fn upload_products_excel(file_path: &Path, db_path: &Path) -> Result<S
     Ok(format!("Imported {inserted} products successfully"))
 }
 
-fn parse_products_rows(rows: &[ExcelRow]) -> Result<Vec<ParsedProductRow>, AppError> {
-    rows.iter()
-        .enumerate()
-        .skip(DATA_START_ROW_INDEX)
-        .map(|(row_index, row)| parse_product_row(row_index, row))
-        .collect()
+fn parse_products_rows(rows: &[ExcelRow]) -> Result<Vec<NewProduct>, AppError> {
+    let mut products = Vec::new();
+    for (row_index, row) in rows.iter().enumerate().skip(DATA_START_ROW_INDEX) {
+        if let Some(product) = parse_product_row(row_index, row)? {
+            products.push(product);
+        }
+    }
+    Ok(products)
 }
 
-fn parse_product_row(row_index: usize, row: &ExcelRow) -> Result<ParsedProductRow, AppError> {
+/// Parses one info3/info4 row into a `NewProduct`, or `None` when the row has no numeric `gruppo`
+/// (header leftovers / blank lines are not products). Description, capacity and nicotine are left
+/// as placeholders here — they are filled later from the skeleton files.
+fn parse_product_row(row_index: usize, row: &ExcelRow) -> Result<Option<NewProduct>, AppError> {
     let row_number = row_index + 1;
 
-    let code = get_required_cell(row, CODE_COLUMN_INDEX, row_number, "code")?;
-    let description = get_required_cell(row, DESCRIPTION_COLUMN_INDEX, row_number, "description")?;
-    let units = parse_non_negative_u32(
-        get_required_cell(row, UNITS_COLUMN_INDEX, row_number, "units")?,
-        row_number,
-        "units",
-    )?;
-    let pli_value = parse_i64(
-        get_required_cell(row, PLI_COLUMN_INDEX, row_number, "pli")?,
-        row_number,
-        "pli",
-    )?;
-
-    let product_type = if pli_value == PLI_TRUE_VALUE {
-        ProductType::Pli
-    } else {
-        ProductType::Pat
+    let Some(gruppo) = optional_cell(row, GRUPPO_COLUMN_INDEX).and_then(|v| v.parse::<i64>().ok())
+    else {
+        return Ok(None);
     };
 
-    Ok(ParsedProductRow {
-        code: code.to_string(),
-        description: description.to_string(),
-        units,
-        product_type,
-        capacity: 0,
-        nicotine: 0,
-        packages: 0,
+    let code = get_required_cell(row, CODE_COLUMN_INDEX, row_number, "code")?.to_string();
+
+    if gruppo == PLI_GRUPPO_VALUE {
+        let units = parse_non_negative_u32(
+            get_required_cell(row, INFO3_COLUMN_INDEX, row_number, "units")?,
+            row_number,
+            "units",
+        )?;
+        Ok(Some(NewProduct {
+            product_type: ProductType::Pli,
+            code,
+            description: String::new(),
+            units,
+            // capacity/nicotine are skeleton-owned; left NULL until a skeleton is uploaded.
+            capacity: None,
+            nicotine: None,
+            packages: None,
+            adm_code: None,
+            tabella: None,
+        }))
+    } else {
+        let units = parse_non_negative_u32(
+            get_required_cell(row, INFO4_COLUMN_INDEX, row_number, "units")?,
+            row_number,
+            "units",
+        )?;
+        let packages = parse_non_negative_u32(
+            get_required_cell(row, INFO3_COLUMN_INDEX, row_number, "packages")?,
+            row_number,
+            "packages",
+        )?;
+        Ok(Some(NewProduct {
+            product_type: ProductType::Pat,
+            code,
+            description: String::new(),
+            units,
+            capacity: None,
+            nicotine: None,
+            packages: Some(packages),
+            adm_code: None,
+            // tabella is skeleton-owned (read from skeleton_pat); gruppo only classifies the type.
+            tabella: None,
+        }))
+    }
+}
+
+fn optional_cell(row: &ExcelRow, column_index: usize) -> Option<&str> {
+    row.cells
+        .get(column_index)
+        .map(|cell| cell.trim())
+        .filter(|cell| !cell.is_empty())
+}
+
+/// Second product phase: read a skeleton file (skeleton_pli or skeleton_pat) and fill the
+/// skeleton-owned fields on products already imported, matched by product code.
+pub async fn upload_skeleton_excel(file_path: &Path, db_path: &Path) -> Result<String, AppError> {
+    if !file_path.is_file() {
+        return Err(AppError::Processing("Selected file does not exist".to_string()));
+    }
+    let ext = file_path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    if !ext.eq_ignore_ascii_case("xlsx") {
+        return Err(AppError::Processing("Only .xlsx files are supported".to_string()));
+    }
+
+    let rows = excel_repository::read_excel(file_path).await?;
+
+    let header_index = find_skeleton_header(&rows).ok_or_else(|| {
+        AppError::Processing(
+            "Could not find the product table header (expected 'Codice prodotto' and 'Denominazione prodotto')"
+                .to_string(),
+        )
+    })?;
+    let layout = SkeletonLayout::detect(&rows[header_index])?;
+    let updates = parse_skeleton_rows(&rows, header_index + 1, &layout);
+
+    if updates.is_empty() {
+        return Err(AppError::Processing(
+            "No product rows found in the skeleton file".to_string(),
+        ));
+    }
+
+    let total = updates.len();
+    let matched = product::update_products_from_skeleton(db_path.to_path_buf(), updates).await?;
+    let not_found = total.saturating_sub(matched);
+
+    Ok(format!("Updated {matched} products ({not_found} codes not found)"))
+}
+
+enum SkeletonLayout {
+    Pli {
+        code: usize,
+        description: usize,
+        capacity: usize,
+        nicotine: usize,
+    },
+    Pat {
+        code: usize,
+        description: usize,
+        adm_code: Option<usize>,
+        tabella: Option<usize>,
+    },
+}
+
+impl SkeletonLayout {
+    fn detect(header: &ExcelRow) -> Result<SkeletonLayout, AppError> {
+        let norm: Vec<String> = header.cells.iter().map(|c| normalize_skeleton(c)).collect();
+        let code_indices: Vec<usize> = norm
+            .iter()
+            .enumerate()
+            .filter(|(_, h)| h.contains("codice prodotto"))
+            .map(|(i, _)| i)
+            .collect();
+        // Prefer the exact 'Denominazione prodotto' column; PAT skeletons carry other
+        // 'Denominazione …' columns (e.g. tabella) that must not be mistaken for it.
+        let description = norm
+            .iter()
+            .position(|h| h.contains("denominazione prodotto"))
+            .or_else(|| norm.iter().position(|h| h.contains("denominazione")))
+            .ok_or_else(|| {
+                AppError::Processing("Skeleton missing 'Denominazione prodotto' column".to_string())
+            })?;
+        let missing_code =
+            || AppError::Processing("Skeleton missing 'Codice prodotto' column".to_string());
+
+        let capacity = norm.iter().position(|h| h.contains("capacit"));
+        let nicotine = norm.iter().position(|h| h.contains("nicotin"));
+
+        if let (Some(capacity), Some(nicotine)) = (capacity, nicotine) {
+            // PLI skeleton: one code column (= DB code) plus capacity + nicotine.
+            let code = *code_indices.first().ok_or_else(missing_code)?;
+            Ok(SkeletonLayout::Pli {
+                code,
+                description,
+                capacity,
+                nicotine,
+            })
+        } else {
+            // PAT skeleton: the rightmost 'Codice prodotto' is the company code (= DB code);
+            // the leftmost one, when present, is the ADM code written to tracciati_pat col L.
+            let code = *code_indices.last().ok_or_else(missing_code)?;
+            let adm_code = (code_indices.len() >= 2).then(|| code_indices[0]);
+            let tabella = norm.iter().position(|h| h.contains("tabella"));
+            Ok(SkeletonLayout::Pat {
+                code,
+                description,
+                adm_code,
+                tabella,
+            })
+        }
+    }
+}
+
+fn parse_skeleton_rows(
+    rows: &[ExcelRow],
+    start_index: usize,
+    layout: &SkeletonLayout,
+) -> Vec<SkeletonUpdate> {
+    let mut updates = Vec::new();
+    // The skeleton may list the same product on several rows; keep only the first occurrence so the
+    // matched/not-found counts aren't inflated and the same product isn't updated twice. The key
+    // matches the repository's normalization (trim + uppercase).
+    let mut seen: HashSet<String> = HashSet::new();
+    for row in rows.iter().skip(start_index) {
+        match layout {
+            SkeletonLayout::Pli {
+                code,
+                description,
+                capacity,
+                nicotine,
+            } => {
+                let Some(product_code) = optional_cell(row, *code) else {
+                    continue;
+                };
+                if !seen.insert(product_code.trim().to_uppercase()) {
+                    continue;
+                }
+                updates.push(SkeletonUpdate {
+                    code: product_code.to_string(),
+                    description: optional_cell(row, *description).unwrap_or_default().to_string(),
+                    capacity: optional_cell(row, *capacity).and_then(parse_u32_opt),
+                    nicotine: optional_cell(row, *nicotine).and_then(parse_u32_opt),
+                    adm_code: None,
+                    tabella: None,
+                });
+            }
+            SkeletonLayout::Pat {
+                code,
+                description,
+                adm_code,
+                tabella,
+            } => {
+                let Some(product_code) = optional_cell(row, *code) else {
+                    continue;
+                };
+                if !seen.insert(product_code.trim().to_uppercase()) {
+                    continue;
+                }
+                updates.push(SkeletonUpdate {
+                    code: product_code.to_string(),
+                    description: optional_cell(row, *description).unwrap_or_default().to_string(),
+                    capacity: None,
+                    nicotine: None,
+                    adm_code: adm_code
+                        .and_then(|idx| optional_cell(row, idx))
+                        .map(|s| s.to_string()),
+                    tabella: tabella
+                        .and_then(|idx| optional_cell(row, idx))
+                        .and_then(|s| s.parse::<i64>().ok()),
+                });
+            }
+        }
+    }
+    updates
+}
+
+fn find_skeleton_header(rows: &[ExcelRow]) -> Option<usize> {
+    rows.iter().position(|row| {
+        let has_code = row
+            .cells
+            .iter()
+            .any(|c| normalize_skeleton(c).contains("codice prodotto"));
+        let has_description = row
+            .cells
+            .iter()
+            .any(|c| normalize_skeleton(c).contains("denominazione"));
+        has_code && has_description
     })
+}
+
+/// Lowercase and collapse whitespace/newlines so header matching is resilient (accents are kept,
+/// but we only test prefixes like "capacit"/"nicotin" that precede them).
+fn normalize_skeleton(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+}
+
+fn parse_u32_opt(value: &str) -> Option<u32> {
+    if let Ok(parsed) = value.parse::<i64>() {
+        return u32::try_from(parsed).ok();
+    }
+    value
+        .parse::<f64>()
+        .ok()
+        .filter(|f| *f >= 0.0)
+        .map(|f| f.round() as u32)
 }
 
 fn get_required_cell<'a>(

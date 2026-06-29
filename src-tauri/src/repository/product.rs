@@ -34,6 +34,21 @@ pub struct Product {
     pub capacity: Option<u32>,
     pub nicotine: Option<u32>,
     pub packages: Option<u32>,
+    /// ADM product code (PAT only), sourced from the skeleton_pat; written to tracciati_pat col L.
+    pub adm_code: Option<String>,
+    /// "Tabella di commercializzazione" (PAT only), sourced from the skeleton_pat.
+    pub tabella: Option<i64>,
+}
+
+impl Product {
+    /// True once the skeleton has supplied the fields the tracciati need: PLI requires
+    /// capacity+nicotine, PAT requires the ADM code. Incomplete products are skipped at generation.
+    pub fn is_skeleton_complete(&self) -> bool {
+        match self.product_type {
+            ProductType::Pli => self.capacity.is_some() && self.nicotine.is_some(),
+            ProductType::Pat => self.adm_code.as_deref().is_some_and(|c| !c.is_empty()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -46,6 +61,21 @@ pub struct NewProduct {
     pub capacity: Option<u32>,
     pub nicotine: Option<u32>,
     pub packages: Option<u32>,
+    #[serde(default)]
+    pub adm_code: Option<String>,
+    #[serde(default)]
+    pub tabella: Option<i64>,
+}
+
+/// Skeleton-owned fields applied to an existing product matched by `code`.
+#[derive(Debug, Clone)]
+pub struct SkeletonUpdate {
+    pub code: String,
+    pub description: String,
+    pub capacity: Option<u32>,
+    pub nicotine: Option<u32>,
+    pub adm_code: Option<String>,
+    pub tabella: Option<i64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -69,7 +99,7 @@ pub struct PaginatedProducts {
 }
 
 const PRODUCT_COLUMNS: &str =
-    "id, code, description, units, capacity, nicotine, packages, product_type";
+    "id, code, description, units, capacity, nicotine, packages, adm_code, tabella, product_type";
 
 /// The type-specific columns split out: (capacity, nicotine, packages).
 type TypeFields = (Option<u32>, Option<u32>, Option<u32>);
@@ -85,9 +115,18 @@ pub async fn get_products(
     page: u32,
     page_size: u32,
     product_type_filter: Option<ProductType>,
+    incomplete_only: bool,
+    code_search: Option<String>,
 ) -> Result<PaginatedProducts, AppError> {
     tauri::async_runtime::spawn_blocking(move || {
-        get_products_sync(db_path.as_path(), page, page_size, product_type_filter)
+        get_products_sync(
+            db_path.as_path(),
+            page,
+            page_size,
+            product_type_filter,
+            incomplete_only,
+            code_search.as_deref(),
+        )
     })
     .await
     .map_err(|e| AppError::Processing(format!("Get products task failed: {e}")))?
@@ -139,6 +178,19 @@ pub async fn create_products_in_batches(
     .map_err(|e| AppError::Processing(format!("Batch create product task failed: {e}")))?
 }
 
+/// Applies skeleton-owned fields (description, and capacity/nicotine for PLI or adm_code for PAT)
+/// to existing products matched by `code`. Returns how many rows were matched & updated.
+pub async fn update_products_from_skeleton(
+    db_path: PathBuf,
+    rows: Vec<SkeletonUpdate>,
+) -> Result<usize, AppError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        update_products_from_skeleton_sync(db_path.as_path(), &rows)
+    })
+    .await
+    .map_err(|e| AppError::Processing(format!("Skeleton update task failed: {e}")))?
+}
+
 fn normalize_product_code(code: &str) -> String {
     code.trim().to_uppercase()
 }
@@ -152,15 +204,9 @@ fn split_type_fields(
     packages: Option<u32>,
 ) -> Result<TypeFields, AppError> {
     match product_type {
-        ProductType::Pli => {
-            let capacity = capacity.ok_or_else(|| {
-                AppError::Processing("PLI product capacity is required".to_string())
-            })?;
-            let nicotine = nicotine.ok_or_else(|| {
-                AppError::Processing("PLI product nicotine is required".to_string())
-            })?;
-            Ok((Some(capacity), Some(nicotine), None))
-        }
+        // PLI capacity/nicotine are skeleton-owned and may be NULL until enriched; only the shape
+        // (no packages) is enforced here, matching the table CHECK.
+        ProductType::Pli => Ok((capacity, nicotine, None)),
         ProductType::Pat => {
             let packages = packages.ok_or_else(|| {
                 AppError::Processing("PAT product packages is required".to_string())
@@ -184,6 +230,8 @@ fn create_product_sync(db_path: &Path, input: NewProduct) -> Result<i64, AppErro
         capacity,
         nicotine,
         packages,
+        adm_code,
+        tabella,
     } = input;
 
     let normalized_code = normalize_product_code(&code);
@@ -195,8 +243,8 @@ fn create_product_sync(db_path: &Path, input: NewProduct) -> Result<i64, AppErro
         split_type_fields(product_type, capacity, nicotine, packages)?;
 
     conn.execute(
-        "INSERT INTO product (product_type, code, description, units, capacity, nicotine, packages)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO product (product_type, code, description, units, capacity, nicotine, packages, adm_code, tabella)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             product_type.as_str(),
             normalized_code,
@@ -204,7 +252,9 @@ fn create_product_sync(db_path: &Path, input: NewProduct) -> Result<i64, AppErro
             units,
             opt_value(capacity),
             opt_value(nicotine),
-            opt_value(packages)
+            opt_value(packages),
+            adm_code,
+            tabella
         ],
     )
     .map_err(|e| AppError::Processing(e.to_string()))?;
@@ -244,7 +294,7 @@ fn insert_products_in_batches(
     let mut total_affected = 0;
     for chunk in inputs.chunks(batch_size) {
         let sql = build_product_batch_insert_sql(chunk.len());
-        let mut params_values: Vec<Value> = Vec::with_capacity(chunk.len() * 7);
+        let mut params_values: Vec<Value> = Vec::with_capacity(chunk.len() * 9);
 
         for product in chunk {
             let normalized_code = normalize_product_code(&product.code);
@@ -265,6 +315,14 @@ fn insert_products_in_batches(
             params_values.push(opt_value(capacity));
             params_values.push(opt_value(nicotine));
             params_values.push(opt_value(packages));
+            params_values.push(match &product.adm_code {
+                Some(code) => Value::from(code.clone()),
+                None => Value::Null,
+            });
+            params_values.push(match product.tabella {
+                Some(tabella) => Value::from(tabella),
+                None => Value::Null,
+            });
         }
 
         total_affected += tx
@@ -275,25 +333,73 @@ fn insert_products_in_batches(
     Ok(total_affected)
 }
 
+fn update_products_from_skeleton_sync(
+    db_path: &Path,
+    rows: &[SkeletonUpdate],
+) -> Result<usize, AppError> {
+    if rows.is_empty() {
+        return Ok(0);
+    }
+
+    let mut conn = Connection::open(db_path).map_err(|e| AppError::Io(e.to_string()))?;
+    let tx = conn
+        .transaction()
+        .map_err(|e| AppError::Processing(e.to_string()))?;
+
+    let mut matched = 0usize;
+    {
+        // COALESCE keeps the existing value when a field is NULL/empty, so one statement serves
+        // both PLI (capacity+nicotine) and PAT (adm_code) skeleton rows without clobbering.
+        let mut stmt = tx
+            .prepare(
+                "UPDATE product SET
+                     description = COALESCE(NULLIF(?1, ''), description),
+                     capacity = COALESCE(?2, capacity),
+                     nicotine = COALESCE(?3, nicotine),
+                     adm_code = COALESCE(NULLIF(?4, ''), adm_code),
+                     tabella = COALESCE(?5, tabella)
+                 WHERE code = ?6",
+            )
+            .map_err(|e| AppError::Processing(e.to_string()))?;
+
+        for row in rows {
+            let code = normalize_product_code(&row.code);
+            if code.is_empty() {
+                continue;
+            }
+            matched += stmt
+                .execute(params![
+                    row.description,
+                    row.capacity.map(i64::from),
+                    row.nicotine.map(i64::from),
+                    row.adm_code.clone().unwrap_or_default(),
+                    row.tabella,
+                    code,
+                ])
+                .map_err(|e| AppError::Processing(e.to_string()))?;
+        }
+    }
+
+    tx.commit().map_err(|e| AppError::Processing(e.to_string()))?;
+    Ok(matched)
+}
+
 fn build_product_batch_insert_sql(row_count: usize) -> String {
-    let values = std::iter::repeat_n("(?, ?, ?, ?, ?, ?, ?)", row_count)
+    let values = std::iter::repeat_n("(?, ?, ?, ?, ?, ?, ?, ?, ?)", row_count)
         .collect::<Vec<_>>()
         .join(", ");
-    // `IS NOT` is NULL-safe, so the no-op guard works for the nullable type-specific columns.
+    // On re-import update only import-owned columns; description/capacity/nicotine/adm_code/tabella
+    // are owned by the skeleton phase and must survive a re-import. `IS NOT` is NULL-safe.
+    // ponytail: a product code that flips type between imports can trip the table CHECK
+    // (old capacity/nicotine kept against a new pat type) — accept the error; codes don't change type.
     format!(
-        "INSERT INTO product (product_type, code, description, units, capacity, nicotine, packages) VALUES {values}
+        "INSERT INTO product (product_type, code, description, units, capacity, nicotine, packages, adm_code, tabella) VALUES {values}
          ON CONFLICT(code) DO UPDATE SET
              product_type = excluded.product_type,
-             description = excluded.description,
              units = excluded.units,
-             capacity = excluded.capacity,
-             nicotine = excluded.nicotine,
              packages = excluded.packages
          WHERE product.product_type IS NOT excluded.product_type
-            OR product.description IS NOT excluded.description
             OR product.units IS NOT excluded.units
-            OR product.capacity IS NOT excluded.capacity
-            OR product.nicotine IS NOT excluded.nicotine
             OR product.packages IS NOT excluded.packages"
     )
 }
@@ -303,10 +409,18 @@ fn get_products_sync(
     page: u32,
     page_size: u32,
     product_type_filter: Option<ProductType>,
+    incomplete_only: bool,
+    code_search: Option<&str>,
 ) -> Result<PaginatedProducts, AppError> {
     let offset = (page.saturating_sub(1) as u64) * (page_size as u64);
 
-    let (query, params_values) = build_products_query(product_type_filter, page_size, offset);
+    let (query, params_values) = build_products_query(
+        product_type_filter,
+        incomplete_only,
+        code_search,
+        page_size,
+        offset,
+    );
 
     let conn = Connection::open(db_path).map_err(|e| AppError::Io(e.to_string()))?;
     let mut stmt = conn
@@ -334,15 +448,35 @@ fn get_products_sync(
 
 fn build_products_query(
     product_type_filter: Option<ProductType>,
+    incomplete_only: bool,
+    code_search: Option<&str>,
     page_size: u32,
     offset: u64,
 ) -> (String, Vec<Value>) {
-    let mut params_values: Vec<Value> = Vec::with_capacity(3);
+    let mut params_values: Vec<Value> = Vec::with_capacity(4);
+    let mut conditions: Vec<&str> = Vec::new();
+
+    if let Some(product_type) = product_type_filter {
+        conditions.push("product_type = ?");
+        params_values.push(Value::from(product_type.as_str().to_string()));
+    }
+    if let Some(term) = code_search.map(str::trim).filter(|t| !t.is_empty()) {
+        // Case-insensitive substring match (SQLite LIKE is case-insensitive for ASCII).
+        conditions.push("code LIKE ?");
+        params_values.push(Value::from(format!("%{term}%")));
+    }
+    if incomplete_only {
+        // Inverse of Product::is_skeleton_complete: PLI missing capacity/nicotine, PAT missing adm_code.
+        conditions.push(
+            "((product_type = 'pli' AND (capacity IS NULL OR nicotine IS NULL)) \
+              OR (product_type = 'pat' AND (adm_code IS NULL OR adm_code = '')))",
+        );
+    }
 
     let mut query = format!("SELECT {PRODUCT_COLUMNS} FROM product");
-    if let Some(product_type) = product_type_filter {
-        query.push_str(" WHERE product_type = ?");
-        params_values.push(Value::from(product_type.as_str().to_string()));
+    if !conditions.is_empty() {
+        query.push_str(" WHERE ");
+        query.push_str(&conditions.join(" AND "));
     }
     query.push_str(" ORDER BY id DESC LIMIT ? OFFSET ?");
     params_values.push(Value::from(i64::from(page_size + 1)));
@@ -465,13 +599,13 @@ fn delete_product_sync(db_path: &Path, id: i64) -> Result<bool, AppError> {
 }
 
 fn map_product_row(row: &Row<'_>) -> rusqlite::Result<Product> {
-    let product_type_value: String = row.get(7)?;
+    let product_type_value: String = row.get(9)?;
     let product_type = match product_type_value.as_str() {
         "pli" => ProductType::Pli,
         "pat" => ProductType::Pat,
         other => {
             return Err(rusqlite::Error::FromSqlConversionFailure(
-                7,
+                9,
                 rusqlite::types::Type::Text,
                 Box::new(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
@@ -490,6 +624,8 @@ fn map_product_row(row: &Row<'_>) -> rusqlite::Result<Product> {
         capacity: row.get(4)?,
         nicotine: row.get(5)?,
         packages: row.get(6)?,
+        adm_code: row.get(7)?,
+        tabella: row.get(8)?,
     })
 }
 
@@ -515,9 +651,11 @@ mod tests {
                 capacity INTEGER,
                 nicotine INTEGER,
                 packages INTEGER,
+                adm_code TEXT,
+                tabella INTEGER,
                 CHECK (
-                    (product_type = 'pli' AND capacity IS NOT NULL AND nicotine IS NOT NULL AND packages IS NULL)
-                 OR (product_type = 'pat' AND packages IS NOT NULL AND capacity IS NULL AND nicotine IS NULL)
+                    (product_type = 'pli' AND packages IS NULL)
+                 OR (product_type = 'pat' AND capacity IS NULL AND nicotine IS NULL)
                 )
             )",
             [],
@@ -541,6 +679,8 @@ mod tests {
             capacity,
             nicotine,
             packages,
+            adm_code: None,
+            tabella: None,
         }
     }
 
@@ -566,9 +706,103 @@ mod tests {
     }
 
     #[test]
-    fn pli_without_required_fields_is_rejected() {
+    fn unenriched_products_insert_but_report_incomplete() {
         let db = temp_db();
-        assert!(create_product_sync(&db, new(ProductType::Pli, "p1", Some(10), None, None)).is_err());
+        // Import leaves skeleton-owned fields NULL: a PLI without capacity/nicotine and a PAT
+        // without adm_code both insert fine but are not yet usable for tracciati.
+        create_product_sync(&db, new(ProductType::Pli, "p1", None, None, None)).unwrap();
+        create_product_sync(&db, new(ProductType::Pat, "a1", None, None, Some(3))).unwrap();
+
+        let pli = get_product_by_code_sync(&db, "p1", None).unwrap().unwrap();
+        let pat = get_product_by_code_sync(&db, "a1", None).unwrap().unwrap();
+        assert!(!pli.is_skeleton_complete());
+        assert!(!pat.is_skeleton_complete());
+
+        std::fs::remove_file(&db).ok();
+    }
+
+    #[test]
+    fn skeleton_update_fills_only_owned_fields_and_reimport_preserves_them() {
+        let db = temp_db();
+        // Import leaves skeleton-owned fields NULL, as upload_products_excel now writes them.
+        create_product_sync(&db, new(ProductType::Pli, "p1", None, None, None)).unwrap();
+        create_product_sync(&db, new(ProductType::Pat, "a1", None, None, Some(2))).unwrap();
+
+        // Both start incomplete until the skeleton enriches them.
+        assert!(!get_product_by_code_sync(&db, "p1", None).unwrap().unwrap().is_skeleton_complete());
+        assert!(!get_product_by_code_sync(&db, "a1", None).unwrap().unwrap().is_skeleton_complete());
+
+        let matched = update_products_from_skeleton_sync(
+            &db,
+            &[
+                SkeletonUpdate {
+                    code: "p1".into(),
+                    description: "MENTA".into(),
+                    capacity: Some(20),
+                    nicotine: Some(5),
+                    adm_code: None,
+                    tabella: None,
+                },
+                SkeletonUpdate {
+                    code: "a1".into(),
+                    description: "SMOKING KIT".into(),
+                    capacity: None,
+                    nicotine: None,
+                    adm_code: Some("D00005012".into()),
+                    tabella: Some(4),
+                },
+                SkeletonUpdate {
+                    code: "missing".into(),
+                    description: "x".into(),
+                    capacity: None,
+                    nicotine: None,
+                    adm_code: None,
+                    tabella: None,
+                },
+            ],
+        )
+        .unwrap();
+        assert_eq!(matched, 2); // the unknown code is skipped
+
+        let pli = get_product_by_code_sync(&db, "p1", None).unwrap().unwrap();
+        assert_eq!((pli.description.as_str(), pli.capacity, pli.nicotine), ("MENTA", Some(20), Some(5)));
+        assert!(pli.is_skeleton_complete());
+        let pat = get_product_by_code_sync(&db, "a1", None).unwrap().unwrap();
+        assert_eq!(
+            (pat.description.as_str(), pat.adm_code.as_deref(), pat.tabella),
+            ("SMOKING KIT", Some("D00005012"), Some(4))
+        );
+        assert!(pat.is_skeleton_complete());
+
+        // A re-import (UPSERT) updates import-owned fields but must not wipe skeleton data —
+        // including tabella, which is now skeleton-owned (import no longer sets it).
+        create_products_in_batches_sync(
+            &db,
+            &[
+                {
+                    let mut p = new(ProductType::Pli, "p1", None, None, None);
+                    p.units = 7;
+                    p.description = String::new();
+                    p
+                },
+                {
+                    let mut p = new(ProductType::Pat, "a1", None, None, Some(9));
+                    p.description = String::new();
+                    p
+                },
+            ],
+            10,
+        )
+        .unwrap();
+
+        let pli = get_product_by_code_sync(&db, "p1", None).unwrap().unwrap();
+        assert_eq!((pli.units, pli.description.as_str(), pli.capacity), (7, "MENTA", Some(20)));
+        let pat = get_product_by_code_sync(&db, "a1", None).unwrap().unwrap();
+        assert_eq!(
+            (pat.units, pat.packages, pat.tabella, pat.adm_code.as_deref()),
+            (1, Some(9), Some(4), Some("D00005012"))
+        );
+
         std::fs::remove_file(&db).ok();
     }
 }

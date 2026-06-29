@@ -29,3 +29,4 @@ calamine = { version = "0.26", features = ["dates"] }
 rust_xlsxwriter = "0.81"
 thiserror = "2"
 rusqlite = { version = "0.32", features = ["bundled"] }
+umya-spreadsheet = "2.3.3"

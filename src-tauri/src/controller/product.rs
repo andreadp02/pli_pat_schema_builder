@@ -25,6 +25,8 @@ pub async fn get_products(
     page: u32,
     page_size: u32,
     product_type_filter: Option<ProductType>,
+    incomplete_only: Option<bool>,
+    code_search: Option<String>,
 ) -> Result<PaginatedProducts, String> {
     if page_size > MAX_PRODUCTS_PAGE_SIZE {
         return Err(format!("page_size cannot exceed {MAX_PRODUCTS_PAGE_SIZE}"));
@@ -38,6 +40,8 @@ pub async fn get_products(
         normalized_page,
         normalized_page_size,
         product_type_filter,
+        incomplete_only.unwrap_or(false),
+        code_search,
     )
         .await
     .map_err(|e| e.to_string())
@@ -98,6 +102,15 @@ pub async fn upload_products_excel(app_handle: AppHandle, file_path: String) -> 
     let db_path = resolve_db_path(&app_handle)?;
 
     service::product::upload_products_excel(Path::new(&file_path), db_path.as_path())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn upload_skeleton_excel(app_handle: AppHandle, file_path: String) -> Result<String, String> {
+    let db_path = resolve_db_path(&app_handle)?;
+
+    service::product::upload_skeleton_excel(Path::new(&file_path), db_path.as_path())
         .await
         .map_err(|e| e.to_string())
 }

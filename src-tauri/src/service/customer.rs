@@ -140,11 +140,13 @@ async fn validate_rows(
     }
 
     let (parsed_rows, mut invalid_rows) = parse_customer_rows(&rows)?;
+    let file_province_map = build_file_province_map(&parsed_rows);
     let mut ready_rows = Vec::new();
     let mut ambiguous_rows = Vec::new();
 
     for parsed in parsed_rows {
-        let province_in_row = normalize_optional_string(parsed.province_name.as_deref());
+        let province_in_row = normalize_optional_string(parsed.province_name.as_deref())
+            .or_else(|| file_province_map.get(&municipality_key(&parsed.municipality_name)).cloned());
 
         if let Some(province_name) = province_in_row {
             ready_rows.push(NewCustomer {
@@ -444,6 +446,22 @@ fn normalize_optional_string(value: Option<&str>) -> Option<String> {
             Some(trimmed.to_string())
         }
     })
+}
+
+// ponytail: first-writer-wins if the same municipality gets two different provinces in the file
+fn build_file_province_map(parsed_rows: &[ParsedUploadRow]) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    for parsed in parsed_rows {
+        if let Some(province) = normalize_optional_string(parsed.province_name.as_deref()) {
+            map.entry(municipality_key(&parsed.municipality_name))
+                .or_insert(province);
+        }
+    }
+    map
+}
+
+fn municipality_key(municipality_name: &str) -> String {
+    municipality_name.trim().to_lowercase()
 }
 
 fn build_resolution_map(resolutions: Vec<ProvinceResolution>) -> HashMap<usize, String> {
