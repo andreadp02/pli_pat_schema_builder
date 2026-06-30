@@ -9,13 +9,14 @@ use crate::utils::resolve_db_path;
 /// Tauri command: read the uploaded invoices and fill the two saved templates.
 ///
 /// `invoice_paths` – absolute paths to the source invoice .xlsx files.
-/// `period`        – reporting period written on every row (e.g. "03/2026").
+/// `fortnight_end` – selected fortnight end date as ISO "YYYY-MM-DD"; PAT writes it as a real date,
+///                   PLI writes the derived month ("MM/YYYY").
 /// `output_dir`    – directory where `tracciati_pli.xlsx` / `tracciati_pat.xlsx` are written.
 #[command]
 pub async fn generate_tracciati(
     app_handle: AppHandle,
     invoice_paths: Vec<String>,
-    period: String,
+    fortnight_end: String,
     output_dir: String,
 ) -> Result<GenerateResult, String> {
     let db_path = resolve_db_path(&app_handle)?;
@@ -30,7 +31,7 @@ pub async fn generate_tracciati(
 
     excel::generate_tracciati(
         invoice_paths,
-        period,
+        fortnight_end,
         &pli_template,
         &pat_template,
         Path::new(&output_dir),

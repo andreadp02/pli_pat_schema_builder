@@ -11,13 +11,17 @@
 		openOutput,
 		reset,
 		shortenPath,
+		fortnightOptions,
+		defaultFortnight,
 		type PageState
 	} from '$lib/page-actions';
+
+	const fortnights = fortnightOptions();
 
 	let state = $state<PageState>({
 		selectedFiles: [],
 		outputDir: null,
-		period: '',
+		fortnightEnd: defaultFortnight(fortnights),
 		processing: false,
 		result: null,
 		errorMsg: null
@@ -71,16 +75,20 @@
 			{/if}
 		</section>
 
-		<!-- Step 2 – Period -->
+		<!-- Step 2 – Fortnight end date -->
 		<section class="bg-white rounded-2xl shadow p-6 space-y-4">
-			<h2 class="text-lg font-semibold text-gray-800">2. Reporting Period</h2>
-			<input
-				type="text"
-				bind:value={state.period}
-				placeholder="e.g. 03/2026"
+			<h2 class="text-lg font-semibold text-gray-800">2. Fortnight End Date</h2>
+			<select
+				bind:value={state.fortnightEnd}
 				class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-			/>
-			<p class="text-xs text-gray-400">Written to every row (Data mese / Data fine quindicina).</p>
+			>
+				{#each fortnights as f}
+					<option value={f.value}>{f.label}</option>
+				{/each}
+			</select>
+			<p class="text-xs text-gray-400">
+				PAT: Data fine quindicina (this date). PLI: Data mese (its month).
+			</p>
 		</section>
 
 		<!-- Step 3 – Output directory -->
@@ -109,7 +117,7 @@
 			<div class="flex gap-3">
 				<button
 					onclick={() => generate(state, deps)}
-					disabled={state.selectedFiles.length === 0 || !state.outputDir || !state.period.trim() || state.processing}
+					disabled={state.selectedFiles.length === 0 || !state.outputDir || !state.fortnightEnd || state.processing}
 					class="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg bg-green-600 text-white font-semibold
 					       hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2
 					       disabled:opacity-50 disabled:cursor-not-allowed transition-colors"

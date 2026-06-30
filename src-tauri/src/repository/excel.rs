@@ -9,7 +9,15 @@ use crate::AppError;
 #[derive(Debug, Clone)]
 pub struct TemplateCell {
     pub column: u32,
-    pub value: String,
+    pub value: CellValue,
+}
+
+/// Text is written as-is; Date is written as a real Excel serial date (so ADM's importer sees a
+/// date, not a string) with a dd/mm/yyyy display format.
+#[derive(Debug, Clone)]
+pub enum CellValue {
+    Text(String),
+    Date { year: i32, month: i32, day: i32 },
 }
 
 /// Reads all rows from the first sheet of an Excel (.xlsx) file.
@@ -102,9 +110,20 @@ pub async fn fill_template(
             }
 
             for input in row_cells {
-                sheet
-                    .get_cell_mut((input.column, target_row))
-                    .set_value(input.value.clone());
+                let cell = sheet.get_cell_mut((input.column, target_row));
+                match &input.value {
+                    CellValue::Text(value) => {
+                        cell.set_value(value.clone());
+                    }
+                    CellValue::Date { year, month, day } => {
+                        let serial =
+                            umya_spreadsheet::helper::date::convert_date(*year, *month, *day, 0, 0, 0);
+                        cell.set_value_number(serial);
+                        cell.get_style_mut()
+                            .get_number_format_mut()
+                            .set_format_code("dd/mm/yyyy");
+                    }
+                }
             }
         }
 

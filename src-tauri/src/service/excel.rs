@@ -3,7 +3,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::repository::customer::{self as customer_repository, Customer};
-use crate::repository::excel::{self as excel_repository, TemplateCell};
+use crate::repository::excel::{self as excel_repository, CellValue, TemplateCell};
 use crate::repository::product::{self as product_repository, Product, ProductType};
 use crate::service::invoice::{self, Invoice, InvoiceLine};
 use crate::AppError;
@@ -37,7 +37,7 @@ const PAT_START_ROW: u32 = 2;
 /// warnings rather than aborting the whole run.
 pub async fn generate_tracciati(
     invoice_paths: Vec<String>,
-    period: String,
+    fortnight_end: String,
     pli_template: &Path,
     pat_template: &Path,
     output_dir: &Path,
@@ -46,6 +46,10 @@ pub async fn generate_tracciati(
     if invoice_paths.is_empty() {
         return Err(AppError::Processing("No invoices selected".to_string()));
     }
+
+    // PAT writes the fortnight end as a real date; PLI writes only its month ("MM/YYYY").
+    let (year, month, day) = parse_fortnight_end(&fortnight_end)?;
+    let pli_period = format!("{month:02}/{year:04}");
 
     let mut pli_rows: Vec<Vec<TemplateCell>> = Vec::new();
     let mut pat_rows: Vec<Vec<TemplateCell>> = Vec::new();
@@ -98,11 +102,11 @@ pub async fn generate_tracciati(
 
             match product.product_type {
                 ProductType::Pli => {
-                    pli_rows.push(build_pli_row(&customer, &product, &invoice, line, &period))
+                    pli_rows.push(build_pli_row(&customer, &product, &invoice, line, &pli_period))
                 }
-                ProductType::Pat => {
-                    pat_rows.push(build_pat_row(&customer, &product, &invoice, line, &period))
-                }
+                ProductType::Pat => pat_rows.push(build_pat_row(
+                    &customer, &product, &invoice, line, year, month, day,
+                )),
             }
         }
     }
@@ -144,8 +148,29 @@ async fn resolve_customer(db_path: &Path, invoice: &Invoice) -> Result<Option<Cu
 fn cell(column: u32, value: impl Into<String>) -> TemplateCell {
     TemplateCell {
         column,
-        value: value.into(),
+        value: CellValue::Text(value.into()),
     }
+}
+
+fn date_cell(column: u32, year: i32, month: i32, day: i32) -> TemplateCell {
+    TemplateCell {
+        column,
+        value: CellValue::Date { year, month, day },
+    }
+}
+
+/// Parses the fortnight end the frontend sends as an ISO date ("YYYY-MM-DD").
+fn parse_fortnight_end(iso: &str) -> Result<(i32, i32, i32), AppError> {
+    let parts: Vec<&str> = iso.split('-').collect();
+    let bad = || AppError::Processing(format!("Invalid fortnight end date '{iso}'"));
+    let [y, m, d] = parts.as_slice() else {
+        return Err(bad());
+    };
+    Ok((
+        y.parse().map_err(|_| bad())?,
+        m.parse().map_err(|_| bad())?,
+        d.parse().map_err(|_| bad())?,
+    ))
 }
 
 fn build_pli_row(
@@ -153,7 +178,7 @@ fn build_pli_row(
     product: &Product,
     invoice: &Invoice,
     line: &InvoiceLine,
-    period: &str,
+    pli_period: &str,
 ) -> Vec<TemplateCell> {
     let tax_code = customer.tax_code.to_string();
     // Rivendita → CMNR (F); otherwise the esercizio-vicinato number (E).
@@ -165,7 +190,7 @@ fn build_pli_row(
     let confezioni = i64::from(product.units) * line.quantity;
 
     vec![
-        cell(4, period.to_string()),                               // D Data mese
+        cell(4, pli_period.to_string()),                           // D Data mese (MM/YYYY)
         cell(5, esercizio),                                        // E Numero esercizio vicinato
         cell(6, cmnr),                                             // F CMNR rivendita
         cell(7, customer.ordinal_number.to_string()),             // G Numero ordinale
@@ -188,7 +213,9 @@ fn build_pat_row(
     product: &Product,
     invoice: &Invoice,
     line: &InvoiceLine,
-    period: &str,
+    year: i32,
+    month: i32,
+    day: i32,
 ) -> Vec<TemplateCell> {
     let cmnr = if customer.typology == RIVENDITA {
         customer.tax_code.to_string()
@@ -198,7 +225,7 @@ fn build_pat_row(
     let confezioni = i64::from(product.packages.unwrap_or(0)) * line.quantity;
 
     vec![
-        cell(5, period.to_string()),                               // E Data fine quindicina
+        date_cell(5, year, month, day),                            // E Data fine quindicina
         cell(6, cmnr),                                             // F CMNR rivendita
         cell(7, customer.ordinal_number.to_string()),             // G Numero ordinale
         cell(8, customer.municipality_name.clone()),              // H Comune
