@@ -26,10 +26,10 @@ pub struct GenerateResult {
 const RIVENDITA: &str = "RIVENDITA";
 
 // tracciati_pli: sheet + first data row (the template's prototype row carries constants/formulas).
-const PLI_SHEET: &str = "MENSILE PUNTI VENDITA RIFORNITI";
+pub const PLI_SHEET: &str = "MENSILE PUNTI VENDITA RIFORNITI";
 const PLI_START_ROW: u32 = 6;
 // tracciati_pat
-const PAT_SHEET: &str = "PROSPETTO IMMISSIONI IN CONSUMO";
+pub const PAT_SHEET: &str = "PROSPETTO IMMISSIONI IN CONSUMO";
 const PAT_START_ROW: u32 = 2;
 
 /// Reads every invoice, matches each to a customer and its excise lines to products, and fills the

@@ -91,6 +91,8 @@ pub fn run() {
             window_start_dragging,
             open_path,
             controller::tracciati::generate_tracciati,
+            controller::template::save_template,
+            controller::template::get_templates_status,
             controller::product::create_product,
             controller::product::get_products,
             controller::product::get_product_by_id,

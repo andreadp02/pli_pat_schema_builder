@@ -28,10 +28,6 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "resources": [
-      "resources/tracciati_pli.xlsx",
-      "resources/tracciati_pat.xlsx"
-    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
