@@ -4,16 +4,34 @@ use std::path::Path;
 use crate::repository::excel as excel_repository;
 use crate::repository::product::{self, NewProduct, ProductType, SkeletonUpdate};
 use crate::service::excel::ExcelRow;
-use crate::utils::parse_i64;
+use crate::utils::{build_header_map, find_required_header, parse_i64};
 use crate::AppError;
 
-const CODE_COLUMN_INDEX: usize = 5; // F = Prodotto (product code)
-const INFO3_COLUMN_INDEX: usize = 8; // I = Info 3 (PLI units / PAT packages)
-const INFO4_COLUMN_INDEX: usize = 9; // J = Info 4 (PAT units)
-const GRUPPO_COLUMN_INDEX: usize = 10; // K = gruppo (5 = PLI, other number = PAT, empty = skip)
+const HEADER_ROW_INDEX: usize = 0;
 const DATA_START_ROW_INDEX: usize = 1;
 const PLI_GRUPPO_VALUE: i64 = 5;
 const INSERT_BATCH_SIZE: usize = 200;
+
+/// Columns located by header name rather than a fixed position: exports differ in column
+/// order/count (e.g. the raw "codici" export has extra leading columns the reduced one doesn't).
+struct ProductColumns {
+    code: usize,   // Prodotto (product code)
+    info3: usize,  // PLI units / PAT packages
+    info4: usize,  // PAT units
+    gruppo: usize, // 5 = PLI, other number = PAT, empty = skip
+}
+
+impl ProductColumns {
+    fn detect(header_row: &ExcelRow) -> Result<Self, AppError> {
+        let headers = build_header_map(header_row);
+        Ok(Self {
+            code: find_required_header(&headers, &["prodotto", "codice_prodotto"])?,
+            info3: find_required_header(&headers, &["info_3"])?,
+            info4: find_required_header(&headers, &["info_4"])?,
+            gruppo: find_required_header(&headers, &["gruppo"])?,
+        })
+    }
+}
 
 pub async fn upload_products_excel(file_path: &Path, db_path: &Path) -> Result<String, AppError> {
     if !file_path.is_file() {
@@ -52,9 +70,14 @@ pub async fn upload_products_excel(file_path: &Path, db_path: &Path) -> Result<S
 }
 
 fn parse_products_rows(rows: &[ExcelRow]) -> Result<Vec<NewProduct>, AppError> {
+    let header_row = rows
+        .get(HEADER_ROW_INDEX)
+        .ok_or_else(|| AppError::Processing("Missing header row".to_string()))?;
+    let columns = ProductColumns::detect(header_row)?;
+
     let mut products = Vec::new();
     for (row_index, row) in rows.iter().enumerate().skip(DATA_START_ROW_INDEX) {
-        if let Some(product) = parse_product_row(row_index, row)? {
+        if let Some(product) = parse_product_row(row_index, row, &columns)? {
             products.push(product);
         }
     }
@@ -63,23 +86,30 @@ fn parse_products_rows(rows: &[ExcelRow]) -> Result<Vec<NewProduct>, AppError> {
 
 /// Parses one info3/info4 row into a `NewProduct`, or `None` when the row has no numeric `gruppo`
 /// (header leftovers / blank lines are not products). Description, capacity and nicotine are left
-/// as placeholders here — they are filled later from the skeleton files.
-fn parse_product_row(row_index: usize, row: &ExcelRow) -> Result<Option<NewProduct>, AppError> {
+/// as placeholders here — they are filled later from the skeleton files. The PLI `adm_code` is the
+/// exception: it's a pure function of `code` (see `pli_adm_code`), so it's derived here rather than
+/// waiting for the skeleton.
+fn parse_product_row(
+    row_index: usize,
+    row: &ExcelRow,
+    columns: &ProductColumns,
+) -> Result<Option<NewProduct>, AppError> {
     let row_number = row_index + 1;
 
-    let Some(gruppo) = optional_cell(row, GRUPPO_COLUMN_INDEX).and_then(|v| v.parse::<i64>().ok())
+    let Some(gruppo) = optional_cell(row, columns.gruppo).and_then(|v| v.parse::<i64>().ok())
     else {
         return Ok(None);
     };
 
-    let code = get_required_cell(row, CODE_COLUMN_INDEX, row_number, "code")?.to_string();
+    let code = get_required_cell(row, columns.code, row_number, "code")?.to_string();
 
     if gruppo == PLI_GRUPPO_VALUE {
         let units = parse_non_negative_u32(
-            get_required_cell(row, INFO3_COLUMN_INDEX, row_number, "units")?,
+            get_required_cell(row, columns.info3, row_number, "units")?,
             row_number,
             "units",
         )?;
+        let adm_code = pli_adm_code(&code);
         Ok(Some(NewProduct {
             product_type: ProductType::Pli,
             code,
@@ -89,17 +119,17 @@ fn parse_product_row(row_index: usize, row: &ExcelRow) -> Result<Option<NewProdu
             capacity: None,
             nicotine: None,
             packages: None,
-            adm_code: None,
+            adm_code,
             tabella: None,
         }))
     } else {
         let units = parse_non_negative_u32(
-            get_required_cell(row, INFO4_COLUMN_INDEX, row_number, "units")?,
+            get_required_cell(row, columns.info4, row_number, "units")?,
             row_number,
             "units",
         )?;
         let packages = parse_non_negative_u32(
-            get_required_cell(row, INFO3_COLUMN_INDEX, row_number, "packages")?,
+            get_required_cell(row, columns.info3, row_number, "packages")?,
             row_number,
             "packages",
         )?;
@@ -256,7 +286,8 @@ fn parse_skeleton_rows(
                     description: optional_cell(row, *description).unwrap_or_default().to_string(),
                     capacity: optional_cell(row, *capacity).and_then(parse_u32_opt),
                     nicotine: optional_cell(row, *nicotine).and_then(parse_u32_opt),
-                    adm_code: pli_adm_code(product_code),
+                    // adm_code is import-owned for PLI (derived from `code`, see pli_adm_code).
+                    adm_code: None,
                     tabella: None,
                 });
             }
@@ -372,7 +403,25 @@ fn parse_non_negative_u32(value: &str, row_number: usize, field_name: &str) -> R
 
 #[cfg(test)]
 mod tests {
-    use super::pli_adm_code;
+    use super::{parse_product_row, parse_products_rows, pli_adm_code, ProductColumns};
+    use crate::service::excel::ExcelRow;
+
+    fn row(cells: &[&str]) -> ExcelRow {
+        ExcelRow {
+            cells: cells.iter().map(|c| c.to_string()).collect(),
+        }
+    }
+
+    // Mirrors the 11-column "codici" export layout (extra tipo/DocTip/.../PrdQta columns before
+    // Prodotto/Info 3/Info 4/gruppo), so field indices don't shift when written by hand here.
+    fn eleven_column_layout() -> ProductColumns {
+        ProductColumns {
+            code: 5,
+            info3: 8,
+            info4: 9,
+            gruppo: 10,
+        }
+    }
 
     #[test]
     fn strips_trailing_dks_after_digit_only() {
@@ -382,5 +431,73 @@ mod tests {
         assert_eq!(pli_adm_code("PL0012162"), None); // no trailing letter
         assert_eq!(pli_adm_code("PLN011954"), None); // ends with digit
         assert_eq!(pli_adm_code("PLD"), None); // D not preceded by a digit
+    }
+
+    // The PLI adm_code is derived from the code at import time, not left for the skeleton to fill.
+    // PAT never gets one here — it stays skeleton-owned.
+    #[test]
+    fn import_derives_pli_adm_code_and_leaves_pat_unset() {
+        let columns = eleven_column_layout();
+
+        let pli = row(&["", "", "", "", "", "PL0012162D", "", "", "10", "", "5"]);
+        assert_eq!(
+            parse_product_row(1, &pli, &columns).unwrap().unwrap().adm_code.as_deref(),
+            Some("PL0012162")
+        );
+
+        let pli_no_suffix = row(&["", "", "", "", "", "PL0012162", "", "", "10", "", "5"]);
+        assert_eq!(
+            parse_product_row(1, &pli_no_suffix, &columns).unwrap().unwrap().adm_code,
+            None
+        );
+
+        let pat = row(&["", "", "", "", "", "A1", "", "", "2", "3", "7"]);
+        assert_eq!(parse_product_row(1, &pat, &columns).unwrap().unwrap().adm_code, None);
+    }
+
+    // A re-import with a changed info3 cell must reparse to the new units/packages value —
+    // the DB-level UPSERT (repository::product tests) then overwrites only this import-owned field.
+    #[test]
+    fn reparsing_a_row_with_a_changed_info3_value_updates_units_and_packages() {
+        let columns = eleven_column_layout();
+
+        // PLI: F=code, I=info3 (units), K=gruppo=5.
+        let pli = |info3: &str| row(&["", "", "", "", "", "P1", "", "", info3, "", "5"]);
+        assert_eq!(parse_product_row(1, &pli("10"), &columns).unwrap().unwrap().units, 10);
+        assert_eq!(parse_product_row(1, &pli("25"), &columns).unwrap().unwrap().units, 25);
+
+        // PAT: F=code, I=info3 (packages), J=info4 (units), K=gruppo!=5.
+        let pat = |info3: &str| row(&["", "", "", "", "", "A1", "", "", info3, "3", "7"]);
+        assert_eq!(parse_product_row(1, &pat("2"), &columns).unwrap().unwrap().packages, Some(2));
+        assert_eq!(parse_product_row(1, &pat("9"), &columns).unwrap().unwrap().packages, Some(9));
+    }
+
+    // Real ADM exports come in two shapes: a reduced 5-column sheet and the raw "codici" export
+    // with 6 extra leading columns. Both must resolve by header name to the same fields.
+    #[test]
+    fn parses_both_real_export_layouts_by_header_name() {
+        let reduced = vec![
+            row(&["Prodotto", "Descrizione", "Info 3", "Info 4", "gruppo"]),
+            row(&["PL000", "LEM PLUS DEVICE + POD", "1", "1", "5"]),
+        ];
+        let products = parse_products_rows(&reduced).unwrap();
+        assert_eq!(products.len(), 1);
+        assert_eq!((products[0].code.as_str(), products[0].units), ("PL000", 1));
+
+        let raw_codici = vec![
+            row(&[
+                "tipo", "DocTip", "DocNum", "AnaType", "AnaCod", "Prodotto", "Descrizione", "PrdQta",
+                "Info 3", "Info 4", "gruppo",
+            ]),
+            row(&[
+                "3", "Giacenza finale", "", "", "", "BOXSEF18", "EASY KIT", "27", "18", "64", "4",
+            ]),
+        ];
+        let products = parse_products_rows(&raw_codici).unwrap();
+        assert_eq!(products.len(), 1);
+        assert_eq!(
+            (products[0].code.as_str(), products[0].units, products[0].packages),
+            ("BOXSEF18", 64, Some(18))
+        );
     }
 }

@@ -65,20 +65,31 @@ flowchart TD
 3. From these files the app stores the product **`code`**, **`units`**, and **`packages`**:
    for PAT, `units` come from the **info4** column and `packages` from the **info3** column.
    The **description does *not* come from these files** — it comes from the skeleton files
-   (next step).
+   (next step). For **PLI**, the **`admCode`** is also derived right here from `code` (see the
+   exception below) — it is not skeleton-owned.
 4. The user then uploads the **skeleton files** (`skeleton_pli`, `skeleton_pat`). Matching on
    the **product code**, the app fills in the **`description`** (both PLI and PAT), the
-   **`capacity`** + **`nicotine`** (PLI only), the **`admCode`** and **`tabella`** (PAT only —
-   written to `tracciati_pat` columns L and K). Import owns `{units, packages}` and the skeleton
-   owns `{description, capacity, nicotine, admCode, tabella}`, so a re-import never wipes skeleton
-   data. (`gruppo` only classifies PLI vs PAT at import; the persisted `tabella` value comes from
-   `skeleton_pat`.)
+   **`capacity`** + **`nicotine`** (PLI only), and the **`admCode`** + **`tabella`** (PAT only —
+   written to `tracciati_pat` columns L and K). Import owns `{units, packages}` and, for PLI,
+   `admCode`; the skeleton owns `{description, capacity, nicotine, tabella}` and, for PAT,
+   `admCode`. A re-import never wipes skeleton data (except it re-derives the PLI `admCode` from
+   the current `code`, which is deterministic and harmless). (`gruppo` only classifies PLI vs PAT
+   at import; the persisted `tabella` value comes from `skeleton_pat`.)
 
-The import (`service/product::upload_products_excel`) leaves the skeleton-owned fields **NULL**;
-uploading the skeletons then fills the real values (`service/product::upload_skeleton_excel`). A
-product still missing its skeleton data is **incomplete** (PLI lacking capacity/nicotine, PAT
-lacking admCode): it is tagged in the products table and **skipped** during tracciati generation
-(reported as a warning) — see `Product::is_skeleton_complete`.
+> **PLI `admCode` exception:** the product code may carry a trailing **D**, **K**, or **S** after
+> the numeric part (e.g. `PL0012162D`) that must **not** appear in the ADM code. The app strips
+> that single trailing letter at import time — `PL0012162D` → `admCode` `PL0012162` — see
+> `service/product::pli_adm_code`. The letter is only stripped when it directly follows a digit;
+> codes without one of these trailing letters are stored as-is (no `admCode`, falls back to `code`
+> when writing `tracciati_pli`). This does not apply to PAT, whose `admCode` comes verbatim from a
+> dedicated skeleton column.
+
+The import (`service/product::upload_products_excel`) leaves the skeleton-owned fields **NULL**
+(PLI's `admCode` aside, which it derives immediately); uploading the skeletons then fills the rest
+(`service/product::upload_skeleton_excel`). A product still missing its skeleton data is
+**incomplete** (PLI lacking capacity/nicotine, PAT lacking `admCode`): it is tagged in the
+products table and **skipped** during tracciati generation (reported as a warning) — see
+`Product::is_skeleton_complete`.
 
 ### 2. Customers
 

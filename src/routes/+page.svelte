@@ -16,7 +16,9 @@
 		type PageState
 	} from '$lib/page-actions';
 	import { notices } from '$lib/notifications.svelte';
+	import { t } from '$lib/i18n.svelte';
 	import Spinner from '$lib/Spinner.svelte';
+	import Notice from '$lib/Notice.svelte';
 
 	const n = notices.home;
 	const fortnights = fortnightOptions();
@@ -46,21 +48,28 @@
 	async function onPickInvoiceFiles(): Promise<void> {
 		await pickInvoiceFiles(state, deps);
 		n.error = null;
+		n.warning = null;
 	}
 
 	async function onGenerate(): Promise<void> {
 		await generate(state, deps);
 		n.error = state.errorMsg;
+		const warnings = state.result?.warnings ?? [];
+		n.warning = warnings.length
+			? [t('home.warnings', { n: warnings.length }), ...warnings.map((w) => `• ${w}`)].join('\n')
+			: null;
 	}
 
 	function onRemoveFile(file: string): void {
 		removeFile(state, file);
 		n.error = null;
+		n.warning = null;
 	}
 
 	function onReset(): void {
 		reset(state);
 		n.error = null;
+		n.warning = null;
 	}
 </script>
 
@@ -68,26 +77,26 @@
 	<main class="flex-1 max-w-3xl w-full mx-auto px-6 py-10 space-y-8">
 		<!-- Step 1 – Select invoices -->
 		<section class="bg-white rounded-2xl shadow p-6 space-y-4">
-			<h2 class="text-lg font-semibold text-gray-800">1. Select Invoices</h2>
+			<h2 class="text-lg font-semibold text-gray-800">{t('home.step1')}</h2>
 
 			<button
 				onclick={onPickInvoiceFiles}
 				class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-blue-600 text-white font-medium
 				       hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
 			>
-				Choose .xlsx invoices
+				{t('home.chooseInvoices')}
 			</button>
 
 			{#if state.selectedFiles.length > 0}
 				<div class="space-y-1.5">
-					<p class="text-sm font-medium text-gray-600">{state.selectedFiles.length} invoice(s) selected</p>
+					<p class="text-sm font-medium text-gray-600">{t('home.selected', { n: state.selectedFiles.length })}</p>
 					{#each state.selectedFiles as file}
 						<div class="flex items-center gap-2 text-sm text-gray-600 bg-gray-50 rounded-lg px-4 py-2">
 							<span class="truncate font-mono flex-1" title={file}>{shortenPath(file)}</span>
 							<button
 								onclick={() => onRemoveFile(file)}
-								title="Remove"
-								aria-label="Remove file"
+								title={t('home.remove')}
+								aria-label={t('home.removeFile')}
 								class="shrink-0 text-gray-400 hover:text-red-600 focus:outline-none text-lg leading-none px-1"
 							>
 								&times;
@@ -100,7 +109,7 @@
 
 		<!-- Step 2 – Fortnight end date -->
 		<section class="bg-white rounded-2xl shadow p-6 space-y-4">
-			<h2 class="text-lg font-semibold text-gray-800">2. Fortnight End Date</h2>
+			<h2 class="text-lg font-semibold text-gray-800">{t('home.step2')}</h2>
 			<select
 				bind:value={state.fortnightEnd}
 				class="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -110,32 +119,40 @@
 				{/each}
 			</select>
 			<p class="text-xs text-gray-400">
-				PAT: Data fine quindicina (this date). PLI: Data mese (its month).
+				{t('home.fortnightHint')}
 			</p>
 		</section>
 
 		<!-- Step 3 – Output directory -->
 		<section class="bg-white rounded-2xl shadow p-6 space-y-4">
-			<h2 class="text-lg font-semibold text-gray-800">3. Select Output Directory</h2>
+			<h2 class="text-lg font-semibold text-gray-800">{t('home.step3')}</h2>
 
 			<button
 				onclick={() => pickOutputDir(state, deps)}
 				class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-gray-200 text-gray-800 font-medium
 				       hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-offset-2 transition-colors"
 			>
-				Choose folder
+				{t('home.chooseFolder')}
 			</button>
 
 			{#if state.outputDir}
 				<div class="flex items-center gap-2 text-sm text-gray-600 bg-gray-50 rounded-lg px-4 py-2.5">
-					<span class="truncate font-mono" title={state.outputDir}>{shortenPath(state.outputDir)}</span>
+					<span class="truncate font-mono flex-1" title={state.outputDir}>{shortenPath(state.outputDir)}</span>
+					<button
+						onclick={() => openOutput(state.outputDir ?? '', deps)}
+						title={t('home.openTitle', { path: state.outputDir })}
+						aria-label={t('home.openTitle', { path: state.outputDir })}
+						class="shrink-0 text-gray-400 hover:text-blue-600 focus:outline-none"
+					>
+						{t('home.open')}
+					</button>
 				</div>
 			{/if}
 		</section>
 
 		<!-- Step 4 – Generate -->
 		<section class="bg-white rounded-2xl shadow p-6 space-y-4">
-			<h2 class="text-lg font-semibold text-gray-800">4. Generate</h2>
+			<h2 class="text-lg font-semibold text-gray-800">{t('home.step4')}</h2>
 
 			<div class="flex gap-3">
 				<button
@@ -146,55 +163,39 @@
 					       disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
 				>
 					{#if state.processing}<Spinner class="h-4 w-4" />{/if}
-					{state.processing ? 'Generating…' : 'Generate tracciati'}
+					{state.processing ? t('home.generating') : t('home.generate')}
 				</button>
 
-				{#if state.result || n.error}
+				{#if state.result || n.error || n.warning}
 					<button
 						onclick={onReset}
 						class="px-4 py-2.5 rounded-lg border border-gray-300 text-gray-600 font-medium
 						       hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-400 transition-colors"
 					>
-						Reset
+						{t('common.reset')}
 					</button>
 				{/if}
 			</div>
 
-			{#if n.error}
-				<div class="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
-					<p class="flex-1">{n.error}</p>
-					<button type="button" aria-label="Dismiss" class="shrink-0 text-lg leading-none text-red-400 hover:text-red-700" onclick={() => (n.error = null)}>&times;</button>
-				</div>
-			{/if}
+			<Notice notice={n} />
 
 			{#if state.result}
 				<div class="space-y-3">
-					<div class="text-green-700 font-medium">Files generated.</div>
+					<div class="text-green-700 font-medium">{t('home.filesGenerated')}</div>
 
 					<div class="space-y-2 text-sm">
 						{#each [{ label: 'tracciati_pli', path: state.result.tracciatiPli }, { label: 'tracciati_pat', path: state.result.tracciatiPat }] as file}
 							<button
 								onclick={() => openOutput(file.path, deps)}
-								title="Open {file.path}"
+								title={t('home.openTitle', { path: file.path })}
 								class="w-full flex items-center gap-3 bg-green-50 border border-green-200 rounded-lg px-4 py-2.5 text-left hover:bg-green-100 focus:outline-none focus:ring-2 focus:ring-green-500 transition-colors"
 							>
 								<span class="font-medium text-gray-700 w-28 shrink-0">{file.label}</span>
 								<span class="truncate font-mono text-gray-600 flex-1">{shortenPath(file.path)}</span>
-								<span class="shrink-0 text-green-700 text-xs font-medium">Open ↗</span>
+								<span class="shrink-0 text-green-700 text-xs font-medium">{t('home.open')}</span>
 							</button>
 						{/each}
 					</div>
-
-					{#if state.result.warnings.length > 0}
-						<div class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800 space-y-1">
-							<p class="font-medium">{state.result.warnings.length} warning(s):</p>
-							<ul class="list-disc list-inside space-y-0.5">
-								{#each state.result.warnings as warning}
-									<li>{warning}</li>
-								{/each}
-							</ul>
-						</div>
-					{/if}
 				</div>
 			{/if}
 		</section>

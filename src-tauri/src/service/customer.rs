@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::repository::customer::{self, NewCustomer};
 use crate::repository::excel as excel_repository;
 use crate::service::excel::ExcelRow;
-use crate::utils::parse_i64;
+use crate::utils::{build_header_map, find_optional_header, find_required_header, parse_i64};
 use crate::AppError;
 
 const HEADER_ROW_INDEX: usize = 0;
@@ -376,46 +376,6 @@ fn parse_customer_row(
         .to_string(),
         province_name: province_name_idx.and_then(|idx| get_optional_by_index(row, idx)),
     })
-}
-
-fn build_header_map(header_row: &ExcelRow) -> HashMap<String, usize> {
-    let mut headers = HashMap::new();
-    for (index, value) in header_row.cells.iter().enumerate() {
-        let key = normalize_header(value);
-        if !key.is_empty() {
-            headers.insert(key, index);
-        }
-    }
-    headers
-}
-
-fn normalize_header(value: &str) -> String {
-    value
-        .trim()
-        .to_lowercase()
-        .chars()
-        .map(|c| if c.is_alphanumeric() { c } else { '_' })
-        .collect::<String>()
-        .split('_')
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join("_")
-}
-
-fn find_required_header(
-    headers: &HashMap<String, usize>,
-    candidates: &[&str],
-) -> Result<usize, AppError> {
-    find_optional_header(headers, candidates).ok_or_else(|| {
-        AppError::Processing(format!(
-            "Missing required header. Accepted names: {}",
-            candidates.join(", ")
-        ))
-    })
-}
-
-fn find_optional_header(headers: &HashMap<String, usize>, candidates: &[&str]) -> Option<usize> {
-    candidates.iter().find_map(|name| headers.get(*name).copied())
 }
 
 fn get_required_by_index<'a>(

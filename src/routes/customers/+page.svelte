@@ -16,6 +16,7 @@
 		type NewCustomer
 	} from '$lib/customer-repository';
 	import { notices } from '$lib/notifications.svelte';
+	import { t } from '$lib/i18n.svelte';
 	import Notice from '$lib/Notice.svelte';
 	import Spinner from '$lib/Spinner.svelte';
 
@@ -66,18 +67,18 @@
 
 function parseRequiredPositiveInteger(value: number, fieldName: string): number {
 		if (value === null || value === undefined || value === 0) {
-			throw new Error(`${fieldName} is required and must be greater than 0.`);
+			throw new Error(t('customers.fieldRequired', { field: fieldName }));
 		}
 		const parsedValue = Number(value);
 		if (!Number.isFinite(parsedValue) || !Number.isInteger(parsedValue) || parsedValue <= 0) {
-			throw new Error(`${fieldName} must be a positive integer.`);
+			throw new Error(t('customers.fieldPositiveInt', { field: fieldName }));
 		}
 		return parsedValue;
 	}
 	function toPayload(form: CustomerForm): NewCustomer {
 		return {
-			taxCode: parseRequiredPositiveInteger(form.taxCode, 'Tax code'),
-			ordinalNumber: parseRequiredPositiveInteger(form.ordinalNumber, 'Ordinal number'),
+			taxCode: parseRequiredPositiveInteger(form.taxCode, t('customers.taxCode')),
+			ordinalNumber: parseRequiredPositiveInteger(form.ordinalNumber, t('customers.phOrdinal')),
 			typology: form.typology,
 			vatNumber: form.vatNumber.trim() || null,
 			address: form.address.trim(),
@@ -203,11 +204,11 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 		event.preventDefault();
 		event.stopPropagation();
 
-		const confirmed = await confirmDialog('Delete this customer?', {
-			title: 'Confirm deletion',
+		const confirmed = await confirmDialog(t('customers.deleteConfirm'), {
+			title: t('common.confirmDeletion'),
 			kind: 'warning',
-			okLabel: 'Delete',
-			cancelLabel: 'Cancel'
+			okLabel: t('common.delete'),
+			cancelLabel: t('common.cancel')
 		});
 		if (!confirmed) return;
 
@@ -229,9 +230,11 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 	function formatSkippedRows(invalidRows: InvalidUploadRow[]): string | null {
 		if (invalidRows.length === 0) return null;
 		const lines = invalidRows.map((row) =>
-			/^row\s+\d+:/i.test(row.message) ? row.message : `Row ${row.rowNumber}: ${row.message}`
+			/^row\s+\d+:/i.test(row.message)
+				? row.message
+				: t('customers.rowPrefix', { n: row.rowNumber, msg: row.message })
 		);
-		return `${invalidRows.length} row(s) skipped (not imported):\n${lines.join('\n')}`;
+		return `${t('customers.skipped', { n: invalidRows.length })}\n${lines.join('\n')}`;
 	}
 
 	async function onUploadCustomersExcel(): Promise<void> {
@@ -241,7 +244,7 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 		const selected = await openDialog({
 			multiple: false,
 			directory: false,
-			filters: [{ name: 'Excel (.xlsx)', extensions: ['xlsx'] }]
+			filters: [{ name: t('common.excelFilter'), extensions: ['xlsx'] }]
 		});
 
 		if (!selected || Array.isArray(selected)) {
@@ -304,7 +307,7 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 
 		if (missingRows.length > 0) {
 			const rows = missingRows.map((row) => row.rowNumber).join(', ');
-			provinceError = `Select a province for row(s): ${rows}`;
+			provinceError = t('customers.selectProvinceFor', { rows });
 			return;
 		}
 
@@ -341,7 +344,7 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 	<main class="mx-auto max-w-7xl px-6 py-8">
 		<section class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
 			<div class="mb-5 flex items-center justify-between gap-4">
-				<h2 class="text-lg font-semibold text-slate-900">Customer Table</h2>
+				<h2 class="text-lg font-semibold text-slate-900">{t('customers.title')}</h2>
 				<div class="flex items-center gap-2">
 					<button
 						type="button"
@@ -350,7 +353,7 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 						disabled={saving}
 					>
 						{#if uploadingExcel}<Spinner class="h-4 w-4" />{/if}
-						Upload Excel
+						{t('common.uploadExcel')}
 					</button>
 					<button
 						type="button"
@@ -358,7 +361,7 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 						class="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800 disabled:opacity-50"
 						disabled={saving}
 					>
-						Add Customer
+						{t('customers.add')}
 					</button>
 					<div class="ml-2 flex items-center space-x-3">
 						<button
@@ -366,15 +369,15 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 							disabled={currentPage === 1 || loading || saving}
 							class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
 						>
-							Previous
+							{t('common.previous')}
 						</button>
-						<span class="text-sm text-slate-600">Page {currentPage}</span>
+						<span class="text-sm text-slate-600">{t('common.page', { n: currentPage })}</span>
 						<button
 							onclick={() => loadPage(currentPage + 1)}
 							disabled={!hasNextPage || loading || saving}
 							class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
 						>
-							Next
+							{t('common.next')}
 						</button>
 					</div>
 				</div>
@@ -391,20 +394,20 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 			>
 				<input
 					type="text"
-					placeholder="Search by tax code"
+					placeholder={t('customers.searchByTax')}
 					bind:value={taxCodeSearch}
 					oninput={onSearchInput}
 					class="rounded-md border border-slate-300 px-3 py-2 text-sm"
 				/>
 				<input
 					type="text"
-					placeholder="Search by VAT"
+					placeholder={t('customers.searchByVat')}
 					bind:value={vatSearch}
 					oninput={onSearchInput}
 					class="rounded-md border border-slate-300 px-3 py-2 text-sm"
 				/>
 				<select bind:value={typologyFilter} class="rounded-md border border-slate-300 px-3 py-2 text-sm">
-					<option value="all">All typologies</option>
+					<option value="all">{t('customers.allTypologies')}</option>
 					{#each CUSTOMER_TYPOLOGIES as typology}
 						<option value={typology}>{typology}</option>
 					{/each}
@@ -414,7 +417,7 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 					disabled={loading || saving}
 					class="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
 				>
-					Search
+					{t('common.search')}
 				</button>
 				<button
 					type="button"
@@ -422,7 +425,7 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 					disabled={loading || saving}
 					class="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 disabled:opacity-50"
 				>
-					Reset
+					{t('common.reset')}
 				</button>
 			</form>
 
@@ -434,24 +437,24 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 					}}
 					class="mb-6 grid gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 md:grid-cols-4"
 				>
-					<input type="number" required placeholder="Tax code" bind:value={newForm.taxCode} class="rounded-md border border-slate-300 px-3 py-2 text-sm" />
-					<input type="number" required placeholder="Ordinal number" bind:value={newForm.ordinalNumber} class="rounded-md border border-slate-300 px-3 py-2 text-sm" />
+					<input type="number" required placeholder={t('customers.phTaxCode')} bind:value={newForm.taxCode} class="rounded-md border border-slate-300 px-3 py-2 text-sm" />
+					<input type="number" required placeholder={t('customers.phOrdinal')} bind:value={newForm.ordinalNumber} class="rounded-md border border-slate-300 px-3 py-2 text-sm" />
 					<select bind:value={newForm.typology} class="rounded-md border border-slate-300 px-3 py-2 text-sm">
 						{#each CUSTOMER_TYPOLOGIES as typology}
 							<option value={typology}>{typology}</option>
 						{/each}
 					</select>
-					<input type="text" placeholder="VAT number (optional)" bind:value={newForm.vatNumber} class="rounded-md border border-slate-300 px-3 py-2 text-sm" />
-					<input type="text" required placeholder="Address" bind:value={newForm.address} class="rounded-md border border-slate-300 px-3 py-2 text-sm md:col-span-2" />
-					<input type="text" required placeholder="Province name" bind:value={newForm.provinceName} class="rounded-md border border-slate-300 px-3 py-2 text-sm" />
-					<input type="text" required placeholder="Municipality name" bind:value={newForm.municipalityName} class="rounded-md border border-slate-300 px-3 py-2 text-sm" />
+					<input type="text" placeholder={t('customers.phVat')} bind:value={newForm.vatNumber} class="rounded-md border border-slate-300 px-3 py-2 text-sm" />
+					<input type="text" required placeholder={t('customers.phAddress')} bind:value={newForm.address} class="rounded-md border border-slate-300 px-3 py-2 text-sm md:col-span-2" />
+					<input type="text" required placeholder={t('customers.phProvince')} bind:value={newForm.provinceName} class="rounded-md border border-slate-300 px-3 py-2 text-sm" />
+					<input type="text" required placeholder={t('customers.phMunicipality')} bind:value={newForm.municipalityName} class="rounded-md border border-slate-300 px-3 py-2 text-sm" />
 
 					<div class="flex gap-2 md:col-span-4">
 						<button type="submit" class="rounded-md bg-blue-700 px-3 py-2 text-sm font-medium text-white hover:bg-blue-800 disabled:opacity-50" disabled={saving}>
-							Save
+							{t('common.save')}
 						</button>
 						<button type="button" onclick={closeCreateForm} class="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">
-							Cancel
+							{t('common.cancel')}
 						</button>
 					</div>
 				</form>
@@ -461,25 +464,25 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 				<table class="min-w-full border-collapse">
 					<thead>
 						<tr class="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-							<th class="px-3 py-3">ID</th>
-							<th class="px-3 py-3">Tax Code</th>
-							<th class="px-3 py-3">Ordinal</th>
-							<th class="px-3 py-3">Typology</th>
-							<th class="px-3 py-3">VAT</th>
-							<th class="px-3 py-3">Address</th>
-							<th class="px-3 py-3">Municipality</th>
-							<th class="px-3 py-3">Province</th>
-							<th class="px-3 py-3">Actions</th>
+							<th class="px-3 py-3">{t('common.id')}</th>
+							<th class="px-3 py-3">{t('customers.taxCode')}</th>
+							<th class="px-3 py-3">{t('customers.ordinal')}</th>
+							<th class="px-3 py-3">{t('customers.typology')}</th>
+							<th class="px-3 py-3">{t('customers.vat')}</th>
+							<th class="px-3 py-3">{t('customers.address')}</th>
+							<th class="px-3 py-3">{t('customers.municipality')}</th>
+							<th class="px-3 py-3">{t('customers.province')}</th>
+							<th class="px-3 py-3">{t('common.actions')}</th>
 						</tr>
 					</thead>
 					<tbody>
 						{#if loading}
 							<tr>
-								<td colspan="9" class="px-3 py-6 text-center text-sm text-slate-500">Loading customers...</td>
+								<td colspan="9" class="px-3 py-6 text-center text-sm text-slate-500">{t('customers.loading')}</td>
 							</tr>
 						{:else if customers.length === 0}
 							<tr>
-								<td colspan="9" class="px-3 py-6 text-center text-sm text-slate-500">No customers found.</td>
+								<td colspan="9" class="px-3 py-6 text-center text-sm text-slate-500">{t('customers.none')}</td>
 							</tr>
 						{:else}
 							{#each customers as customer}
@@ -501,8 +504,8 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 										<td class="px-3 py-3"><input bind:value={editForm.provinceName} class="w-32 rounded-md border border-slate-300 px-2 py-1 text-sm" /></td>
 										<td class="px-3 py-3">
 											<div class="flex gap-2">
-												<button onclick={() => onSaveEdit(customer.id)} class="rounded-md bg-emerald-700 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-800">Save</button>
-												<button onclick={cancelEdit} class="rounded-md border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-100">Cancel</button>
+												<button onclick={() => onSaveEdit(customer.id)} class="rounded-md bg-emerald-700 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-800">{t('common.save')}</button>
+												<button onclick={cancelEdit} class="rounded-md border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-100">{t('common.cancel')}</button>
 											</div>
 										</td>
 									{:else}
@@ -515,8 +518,8 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 										<td class="px-3 py-3 text-sm text-slate-700">{customer.provinceName}</td>
 										<td class="px-3 py-3">
 											<div class="flex gap-2">
-												<button onclick={() => startEdit(customer)} class="rounded-md bg-amber-600 px-3 py-1 text-xs font-medium text-white hover:bg-amber-700">Edit</button>
-												<button type="button" onclick={(event) => onDeleteCustomer(event, customer.id)} class="rounded-md bg-rose-700 px-3 py-1 text-xs font-medium text-white hover:bg-rose-800">Delete</button>
+												<button onclick={() => startEdit(customer)} class="rounded-md bg-amber-600 px-3 py-1 text-xs font-medium text-white hover:bg-amber-700">{t('common.edit')}</button>
+												<button type="button" onclick={(event) => onDeleteCustomer(event, customer.id)} class="rounded-md bg-rose-700 px-3 py-1 text-xs font-medium text-white hover:bg-rose-800">{t('common.delete')}</button>
 											</div>
 										</td>
 									{/if}
@@ -533,17 +536,17 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 					disabled={currentPage === 1 || loading || saving}
 					class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
 				>
-					Previous
+					{t('common.previous')}
 				</button>
 				<span class="text-sm text-slate-600">
-					Page {currentPage}
+					{t('common.page', { n: currentPage })}
 				</span>
 				<button
 					onclick={() => loadPage(currentPage + 1)}
 					disabled={!hasNextPage || loading || saving}
 					class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
 				>
-					Next
+					{t('common.next')}
 				</button>
 			</div>
 		</section>
@@ -552,8 +555,8 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 	{#if showProvinceResolutionModal}
 		<div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
 			<div class="w-full max-w-5xl rounded-xl border border-slate-200 bg-white p-5 shadow-xl">
-				<h3 class="text-base font-semibold text-slate-900">Resolve Province For Ambiguous Rows</h3>
-				<p class="mt-1 text-sm text-slate-600">Province is missing and municipality maps to multiple provinces. Select one province for each row.</p>
+				<h3 class="text-base font-semibold text-slate-900">{t('customers.modalTitle')}</h3>
+				<p class="mt-1 text-sm text-slate-600">{t('customers.modalHint')}</p>
 
 				{#if provinceError}
 					<p class="mt-3 whitespace-pre-line rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{provinceError}</p>
@@ -563,12 +566,12 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 					<table class="min-w-full border-collapse">
 						<thead>
 							<tr class="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-								<th class="px-3 py-2">Row</th>
-								<th class="px-3 py-2">Tax Code</th>
-								<th class="px-3 py-2">Typology</th>
-								<th class="px-3 py-2">Municipality</th>
-								<th class="px-3 py-2">Address</th>
-								<th class="px-3 py-2">Province</th>
+								<th class="px-3 py-2">{t('customers.row')}</th>
+								<th class="px-3 py-2">{t('customers.taxCode')}</th>
+								<th class="px-3 py-2">{t('customers.typology')}</th>
+								<th class="px-3 py-2">{t('customers.municipality')}</th>
+								<th class="px-3 py-2">{t('customers.address')}</th>
+								<th class="px-3 py-2">{t('customers.province')}</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -586,7 +589,7 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 												setProvinceSelection(row.rowNumber, (event.currentTarget as HTMLSelectElement).value)}
 											class="w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
 										>
-											<option value="">Select province</option>
+											<option value="">{t('customers.selectProvince')}</option>
 											{#each row.candidateProvinces as province}
 												<option value={province}>{province}</option>
 											{/each}
@@ -605,7 +608,7 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 						class="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
 						disabled={saving}
 					>
-						Cancel
+						{t('common.cancel')}
 					</button>
 					<button
 						type="button"
@@ -614,7 +617,7 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 						disabled={saving}
 					>
 						{#if uploadingExcel}<Spinner class="h-4 w-4" />{/if}
-						Confirm Upload
+						{t('customers.confirmUpload')}
 					</button>
 				</div>
 			</div>

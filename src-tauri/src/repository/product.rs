@@ -34,7 +34,9 @@ pub struct Product {
     pub capacity: Option<u32>,
     pub nicotine: Option<u32>,
     pub packages: Option<u32>,
-    /// ADM product code (PAT only), sourced from the skeleton_pat; written to tracciati_pat col L.
+    /// ADM product code, written to tracciati_pat col L (PAT) or falls back to `code` in
+    /// tracciati_pli. PAT sources it from the skeleton_pat; PLI derives it from `code` at import
+    /// (see `service::product::pli_adm_code`).
     pub adm_code: Option<String>,
     /// "Tabella di commercializzazione" (PAT only), sourced from the skeleton_pat.
     pub tabella: Option<i64>,
@@ -400,8 +402,11 @@ fn build_product_batch_insert_sql(row_count: usize) -> String {
     let values = std::iter::repeat_n("(?, ?, ?, ?, ?, ?, ?, ?, ?)", row_count)
         .collect::<Vec<_>>()
         .join(", ");
-    // On re-import update only import-owned columns; description/capacity/nicotine/adm_code/tabella
-    // are owned by the skeleton phase and must survive a re-import. `IS NOT` is NULL-safe.
+    // On re-import update only import-owned columns; description/capacity/nicotine/tabella are
+    // owned by the skeleton phase and must survive a re-import. `IS NOT` is NULL-safe. adm_code is
+    // import-owned for PLI (derived from `code`) but skeleton-owned for PAT (import always passes
+    // NULL for PAT), so COALESCE(excluded.adm_code, product.adm_code) updates it for PLI while
+    // leaving a PAT skeleton value untouched.
     // ponytail: a product code that flips type between imports can trip the table CHECK
     // (old capacity/nicotine kept against a new pat type) — accept the error; codes don't change type.
     format!(
@@ -409,10 +414,12 @@ fn build_product_batch_insert_sql(row_count: usize) -> String {
          ON CONFLICT(code) DO UPDATE SET
              product_type = excluded.product_type,
              units = excluded.units,
-             packages = excluded.packages
+             packages = excluded.packages,
+             adm_code = COALESCE(excluded.adm_code, product.adm_code)
          WHERE product.product_type IS NOT excluded.product_type
             OR product.units IS NOT excluded.units
-            OR product.packages IS NOT excluded.packages"
+            OR product.packages IS NOT excluded.packages
+            OR product.adm_code IS NOT COALESCE(excluded.adm_code, product.adm_code)"
     )
 }
 
@@ -821,6 +828,52 @@ mod tests {
             (pat.units, pat.packages, pat.tabella, pat.adm_code.as_deref()),
             (1, Some(9), Some(4), Some("D00005012"))
         );
+
+        std::fs::remove_file(&db).ok();
+    }
+
+    #[test]
+    fn reimport_updates_pli_adm_code_but_never_clobbers_pat_skeleton_value() {
+        let db = temp_db();
+        {
+            let mut p = new(ProductType::Pli, "p1", None, None, None);
+            p.adm_code = Some("PL001".into());
+            create_product_sync(&db, p).unwrap();
+        }
+        create_product_sync(&db, new(ProductType::Pat, "a1", None, None, Some(2))).unwrap();
+        update_products_from_skeleton_sync(
+            &db,
+            &[SkeletonUpdate {
+                code: "a1".into(),
+                description: "d".into(),
+                capacity: None,
+                nicotine: None,
+                adm_code: Some("D00005012".into()),
+                tabella: None,
+            }],
+        )
+        .unwrap();
+
+        // Re-import: PLI's freshly-derived adm_code overwrites the old one; PAT keeps its
+        // skeleton-set value since import always passes None for PAT.
+        create_products_in_batches_sync(
+            &db,
+            &[
+                {
+                    let mut p = new(ProductType::Pli, "p1", None, None, None);
+                    p.adm_code = Some("PL002".into());
+                    p
+                },
+                new(ProductType::Pat, "a1", None, None, Some(2)),
+            ],
+            10,
+        )
+        .unwrap();
+
+        let pli = get_product_by_code_sync(&db, "p1", None).unwrap().unwrap();
+        assert_eq!(pli.adm_code.as_deref(), Some("PL002"));
+        let pat = get_product_by_code_sync(&db, "a1", None).unwrap().unwrap();
+        assert_eq!(pat.adm_code.as_deref(), Some("D00005012"));
 
         std::fs::remove_file(&db).ok();
     }

@@ -12,6 +12,7 @@
 		type ProductType
 	} from '$lib/product-repository';
 	import { notices } from '$lib/notifications.svelte';
+	import { t } from '$lib/i18n.svelte';
 	import Notice from '$lib/Notice.svelte';
 	import Spinner from '$lib/Spinner.svelte';
 
@@ -143,7 +144,7 @@
 
 		const trimmedCode = newForm.code.trim();
 		if (!trimmedCode) {
-			n.error = 'Product code cannot be empty.';
+			n.error = t('products.codeEmpty');
 			saving = false;
 			return;
 		}
@@ -203,7 +204,7 @@
 
 		const trimmedCode = editForm.code.trim();
 		if (!trimmedCode) {
-			n.error = 'Product code cannot be empty.';
+			n.error = t('products.codeEmpty');
 			saving = false;
 			return;
 		}
@@ -232,11 +233,11 @@
 		event.preventDefault();
 		event.stopPropagation();
 
-		const confirmed = await confirmDialog('Delete this product?', {
-			title: 'Confirm deletion',
+		const confirmed = await confirmDialog(t('products.deleteConfirm'), {
+			title: t('common.confirmDeletion'),
 			kind: 'warning',
-			okLabel: 'Delete',
-			cancelLabel: 'Cancel'
+			okLabel: t('common.delete'),
+			cancelLabel: t('common.cancel')
 		});
 		if (!confirmed) return;
 
@@ -262,7 +263,7 @@
 		const selected = await openDialog({
 			multiple: false,
 			directory: false,
-			filters: [{ name: 'Excel (.xlsx)', extensions: ['xlsx'] }]
+			filters: [{ name: t('common.excelFilter'), extensions: ['xlsx'] }]
 		});
 
 		if (!selected || Array.isArray(selected)) {
@@ -290,7 +291,7 @@
 		const selected = await openDialog({
 			multiple: false,
 			directory: false,
-			filters: [{ name: 'Excel (.xlsx)', extensions: ['xlsx'] }]
+			filters: [{ name: t('common.excelFilter'), extensions: ['xlsx'] }]
 		});
 
 		if (!selected || Array.isArray(selected)) {
@@ -322,7 +323,7 @@
 			<Notice notice={n} />
 
 			<div class="flex items-center justify-between gap-4 mb-5">
-				<h2 class="text-lg font-semibold text-slate-900">Product Table</h2>
+				<h2 class="text-lg font-semibold text-slate-900">{t('products.title')}</h2>
 				<div class="flex items-center gap-2">
 					<button
 						type="button"
@@ -331,7 +332,7 @@
 						disabled={saving}
 					>
 						{#if uploadingExcel}<Spinner class="h-4 w-4" />{/if}
-						Upload Excel
+						{t('common.uploadExcel')}
 					</button>
 					<button
 						type="button"
@@ -340,7 +341,7 @@
 						disabled={saving}
 					>
 						{#if uploadingSkeleton}<Spinner class="h-4 w-4" />{/if}
-						Upload Skeleton
+						{t('products.uploadSkeleton')}
 					</button>
 					<button
 						type="button"
@@ -348,7 +349,7 @@
 						class="rounded-lg bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800 disabled:opacity-50"
 						disabled={saving}
 					>
-						Add Product
+						{t('products.add')}
 					</button>
 					<div class="ml-2 flex items-center space-x-3">
 						<button
@@ -356,15 +357,15 @@
 							disabled={currentPage === 1 || loading || saving}
 							class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
 						>
-							Previous
+							{t('common.previous')}
 						</button>
-						<span class="text-sm text-slate-600">Page {currentPage}</span>
+						<span class="text-sm text-slate-600">{t('common.page', { n: currentPage })}</span>
 						<button
 							onclick={() => loadPage(currentPage + 1)}
 							disabled={!hasNextPage || loading || saving}
 							class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
 						>
-							Next
+							{t('common.next')}
 						</button>
 					</div>
 				</div>
@@ -379,26 +380,26 @@
 			>
 				<input
 					type="text"
-					placeholder="Search by code"
+					placeholder={t('products.searchByCode')}
 					bind:value={codeSearch}
 					oninput={onSearchInput}
 					class="rounded-md border border-slate-300 px-3 py-2 text-sm"
 				/>
 				<select bind:value={productTypeFilter} class="rounded-md border border-slate-300 px-3 py-2 text-sm">
-					<option value="all">All</option>
+					<option value="all">{t('common.all')}</option>
 					<option value="pli">PLI</option>
 					<option value="pat">PAT</option>
 				</select>
 				<label class="flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 whitespace-nowrap">
 					<input type="checkbox" bind:checked={incompleteOnly} class="rounded border-slate-300" />
-					Incomplete only
+					{t('products.incompleteOnly')}
 				</label>
 				<button
 					type="submit"
 					disabled={loading || saving}
 					class="rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
 				>
-					Search
+					{t('common.search')}
 				</button>
 				<button
 					type="button"
@@ -406,7 +407,7 @@
 					disabled={loading || saving}
 					class="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100 disabled:opacity-50"
 				>
-					Reset
+					{t('common.reset')}
 				</button>
 			</form>
 
@@ -419,7 +420,7 @@
 					class="mb-6 grid gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 md:grid-cols-8"
 				>
 					<label class="flex flex-col gap-1 text-xs font-medium text-slate-600">
-						Code
+						{t('products.code')}
 						<input
 							type="text"
 							required
@@ -428,7 +429,7 @@
 						/>
 					</label>
 					<label class="flex flex-col gap-1 text-xs font-medium text-slate-600 md:col-span-2">
-						Description
+						{t('products.description')}
 						<input
 							type="text"
 							required
@@ -437,7 +438,7 @@
 						/>
 					</label>
 					<label class="flex flex-col gap-1 text-xs font-medium text-slate-600">
-						Units
+						{t('products.units')}
 						<input
 							type="number"
 							required
@@ -447,14 +448,14 @@
 						/>
 					</label>
 					<label class="flex flex-col gap-1 text-xs font-medium text-slate-600">
-						Type
+						{t('products.type')}
 						<select bind:value={newForm.productType} class="rounded-md border border-slate-300 px-3 py-2 text-sm font-normal">
 							<option value="pli">PLI</option>
 							<option value="pat">PAT</option>
 						</select>
 					</label>
 					<label class="flex flex-col gap-1 text-xs font-medium text-slate-600">
-						ADM Code
+						{t('products.admCode')}
 						<input
 							type="text"
 							bind:value={newForm.admCode}
@@ -463,7 +464,7 @@
 					</label>
 					{#if newForm.productType === 'pli'}
 						<label class="flex flex-col gap-1 text-xs font-medium text-slate-600">
-							Capacity
+							{t('products.capacity')}
 							<input
 								type="number"
 								required
@@ -473,7 +474,7 @@
 							/>
 						</label>
 						<label class="flex flex-col gap-1 text-xs font-medium text-slate-600">
-							Nicotine
+							{t('products.nicotine')}
 							<input
 								type="number"
 								required
@@ -484,7 +485,7 @@
 						</label>
 					{:else}
 						<label class="flex flex-col gap-1 text-xs font-medium text-slate-600">
-							Packages
+							{t('products.packages')}
 							<input
 								type="number"
 								required
@@ -494,7 +495,7 @@
 							/>
 						</label>
 						<label class="flex flex-col gap-1 text-xs font-medium text-slate-600">
-							Tabella
+							{t('products.tabella')}
 							<input
 								type="number"
 								min="0"
@@ -509,14 +510,14 @@
 							class="rounded-md bg-blue-700 px-3 py-2 text-sm font-medium text-white hover:bg-blue-800 disabled:opacity-50"
 							disabled={saving}
 						>
-							Save
+							{t('common.save')}
 						</button>
 						<button
 							type="button"
 							onclick={closeCreateForm}
 							class="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
 						>
-							Cancel
+							{t('common.cancel')}
 						</button>
 					</div>
 				</form>
@@ -526,30 +527,30 @@
 				<table class="min-w-full border-collapse">
 					<thead>
 						<tr class="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-							<th class="px-3 py-3">ID</th>
-							<th class="px-3 py-3">Code</th>
-							<th class="px-3 py-3">Description</th>
-							<th class="px-3 py-3">Units</th>
-							<th class="px-3 py-3">Type</th>
-							<th class="px-3 py-3">ADM Code</th>
+							<th class="px-3 py-3">{t('common.id')}</th>
+							<th class="px-3 py-3">{t('products.code')}</th>
+							<th class="px-3 py-3">{t('products.description')}</th>
+							<th class="px-3 py-3">{t('products.units')}</th>
+							<th class="px-3 py-3">{t('products.type')}</th>
+							<th class="px-3 py-3">{t('products.admCode')}</th>
 							{#if productTypeFilter === 'pli'}
-								<th class="px-3 py-3">Capacity</th>
-								<th class="px-3 py-3">Nicotine</th>
+								<th class="px-3 py-3">{t('products.capacity')}</th>
+								<th class="px-3 py-3">{t('products.nicotine')}</th>
 							{:else if productTypeFilter === 'pat'}
-								<th class="px-3 py-3">Packages</th>
-								<th class="px-3 py-3">Tabella</th>
+								<th class="px-3 py-3">{t('products.packages')}</th>
+								<th class="px-3 py-3">{t('products.tabella')}</th>
 							{/if}
-							<th class="px-3 py-3">Actions</th>
+							<th class="px-3 py-3">{t('common.actions')}</th>
 						</tr>
 					</thead>
 					<tbody>
 						{#if loading}
 							<tr>
-								<td colspan={columnCount} class="px-3 py-6 text-center text-sm text-slate-500">Loading products...</td>
+								<td colspan={columnCount} class="px-3 py-6 text-center text-sm text-slate-500">{t('products.loading')}</td>
 							</tr>
 						{:else if products.length === 0}
 							<tr>
-								<td colspan={columnCount} class="px-3 py-6 text-center text-sm text-slate-500">No products found.</td>
+								<td colspan={columnCount} class="px-3 py-6 text-center text-sm text-slate-500">{t('products.none')}</td>
 							</tr>
 						{:else}
 							{#each products as product (`${product.productType}-${product.id}`)}
@@ -592,13 +593,13 @@
 													onclick={() => onSaveEdit(product.id)}
 													class="rounded-md bg-emerald-700 px-3 py-1 text-xs font-medium text-white hover:bg-emerald-800"
 												>
-													Save
+													{t('common.save')}
 												</button>
 												<button
 													onclick={cancelEdit}
 													class="rounded-md border border-slate-300 px-3 py-1 text-xs text-slate-700 hover:bg-slate-100"
 												>
-													Cancel
+													{t('common.cancel')}
 												</button>
 											</div>
 										</td>
@@ -609,9 +610,9 @@
 												{#if !isComplete(product)}
 													<span
 														class="rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-700"
-														title="Skeleton not uploaded — excluded from tracciati"
+														title={t('products.incompleteTitle')}
 													>
-														Incomplete
+														{t('products.incompleteTag')}
 													</span>
 												{/if}
 											</div>
@@ -633,14 +634,14 @@
 													onclick={() => startEdit(product)}
 													class="rounded-md bg-amber-600 px-3 py-1 text-xs font-medium text-white hover:bg-amber-700"
 												>
-													Edit
+													{t('common.edit')}
 												</button>
 												<button
 													type="button"
 													onclick={(event) => onDeleteProduct(event, product.id)}
 													class="rounded-md bg-rose-700 px-3 py-1 text-xs font-medium text-white hover:bg-rose-800"
 												>
-													Delete
+													{t('common.delete')}
 												</button>
 											</div>
 										</td>
@@ -658,17 +659,17 @@
 					disabled={currentPage === 1 || loading || saving}
 					class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-40"
 				>
-					Previous
+					{t('common.previous')}
 				</button>
 				<span class="text-sm text-slate-600">
-					Page {currentPage}
+					{t('common.page', { n: currentPage })}
 				</span>
 				<button
 					onclick={() => loadPage(currentPage + 1)}
 					disabled={!hasNextPage || loading || saving}
 					class="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
 				>
-					Next
+					{t('common.next')}
 				</button>
 			</div>
 		</section>

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { invoke } from '@tauri-apps/api/core';
+	import { t, getLocale, setLocale } from '$lib/i18n.svelte';
 	import '../app.css';
 	import favicon from '$lib/assets/favicon.svg';
 
@@ -60,7 +61,7 @@
 					? 'bg-slate-900 text-white'
 					: 'text-slate-700 hover:bg-slate-100'}`}
 			>
-				Home
+				{t('nav.home')}
 			</a>
 			<a
 				href="/products"
@@ -69,7 +70,7 @@
 					? 'bg-slate-900 text-white'
 					: 'text-slate-700 hover:bg-slate-100'}`}
 			>
-				Products
+				{t('nav.products')}
 			</a>
 			<a
 				href="/customers"
@@ -78,7 +79,7 @@
 					? 'bg-slate-900 text-white'
 					: 'text-slate-700 hover:bg-slate-100'}`}
 			>
-				Customers
+				{t('nav.customers')}
 			</a>
 			<a
 				href="/templates"
@@ -87,7 +88,7 @@
 					? 'bg-slate-900 text-white'
 					: 'text-slate-700 hover:bg-slate-100'}`}
 			>
-				Templates
+				{t('nav.templates')}
 			</a>
 
 			<div class="min-w-4 flex-1"></div>
@@ -97,9 +98,18 @@
 			<button
 				type="button"
 				data-no-window-drag
+				class="grid w-10 place-items-center text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-200"
+				onclick={() => setLocale(getLocale() === 'en' ? 'it' : 'en')}
+				aria-label={t('lang.switch')}
+			>
+				{getLocale() === 'en' ? 'IT' : 'EN'}
+			</button>
+			<button
+				type="button"
+				data-no-window-drag
 				class="grid w-12 place-items-center text-slate-700 transition-colors hover:bg-slate-200"
 				onclick={minimizeWindow}
-				aria-label="Minimize window"
+				aria-label={t('win.minimize')}
 			>
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="currentColor">
 					<rect x="5" y="11" width="14" height="2" />
@@ -110,7 +120,7 @@
 				data-no-window-drag
 				class="grid w-12 place-items-center text-slate-700 transition-colors hover:bg-slate-200"
 				onclick={toggleMaximize}
-				aria-label="Maximize or restore window"
+				aria-label={t('win.maximize')}
 			>
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2">
 					<rect x="6" y="6" width="12" height="12" />
@@ -121,7 +131,7 @@
 				data-no-window-drag
 				class="grid w-12 place-items-center text-slate-700 transition-colors hover:bg-rose-600 hover:text-white"
 				onclick={closeWindow}
-				aria-label="Close window"
+				aria-label={t('win.close')}
 			>
 				<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2">
 					<path d="M6 6l12 12M18 6L6 18" />
