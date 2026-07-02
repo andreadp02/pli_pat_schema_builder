@@ -333,7 +333,7 @@
 						disabled={saving}
 					>
 						{#if uploadingExcel}<Spinner class="h-4 w-4" />{/if}
-						{t('common.uploadExcel')}
+						{t('products.uploadInfo3')}
 					</button>
 					<button
 						type="button"

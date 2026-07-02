@@ -52,6 +52,7 @@ const en = {
 	'home.warnings': '{n} warning(s):',
 
 	'products.title': 'Product Table',
+	'products.uploadInfo3': 'Upload Info3',
 	'products.uploadSkeleton': 'Upload Skeleton',
 	'products.add': 'Add Product',
 	'products.searchByCode': 'Search by code',
@@ -166,6 +167,7 @@ const it: Record<keyof typeof en, string> = {
 	'home.warnings': '{n} avviso/i:',
 
 	'products.title': 'Tabella prodotti',
+	'products.uploadInfo3': 'Carica Info3',
 	'products.uploadSkeleton': 'Carica scheletro',
 	'products.add': 'Aggiungi prodotto',
 	'products.searchByCode': 'Cerca per codice',
