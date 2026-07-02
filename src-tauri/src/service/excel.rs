@@ -131,8 +131,8 @@ pub async fn generate_tracciati(
         pat_rows.extend(inv_pat);
     }
 
-    let pli_output = output_dir.join("tracciati_pli.xlsx");
-    let pat_output = output_dir.join("tracciati_pat.xlsx");
+    let pli_output = output_dir.join(format!("tracciati_pli_{year:04}-{month:02}-{day:02}.xlsx"));
+    let pat_output = output_dir.join(format!("tracciati_pat_{year:04}-{month:02}-{day:02}.xlsx"));
 
     excel_repository::fill_template(pli_template, &pli_output, PLI_SHEET, PLI_START_ROW, pli_rows)
         .await?;

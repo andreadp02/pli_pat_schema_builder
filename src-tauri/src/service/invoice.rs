@@ -31,9 +31,10 @@ fn parse_invoice_rows(rows: &[ExcelRow]) -> Result<Invoice, AppError> {
     let raw_number = value_right_of_label(rows, &DOC_NUMBER_LABELS).ok_or_else(|| {
         AppError::Processing("Invoice number ('Nr. documento') not found".to_string())
     })?;
-    let number = raw_number.trim().parse::<i64>().map_err(|_| {
+    let digits: String = raw_number.chars().filter(|c| c.is_ascii_digit()).collect();
+    let number = digits.parse::<i64>().map_err(|_| {
         AppError::Processing(format!(
-            "Invoice number must be an integer, found '{raw_number}'"
+            "Invoice number must contain at least one digit, found '{raw_number}'"
         ))
     })?;
 
@@ -207,9 +208,16 @@ mod tests {
     }
 
     #[test]
-    fn non_integer_invoice_number_is_an_error() {
+    fn non_digit_chars_are_stripped_from_invoice_number() {
         let mut rows = sample();
         rows[1] = row(&[(33, "Nr. documento"), (39, "784/D")]);
+        assert_eq!(parse_invoice_rows(&rows).unwrap().number, 784);
+    }
+
+    #[test]
+    fn invoice_number_without_digits_is_an_error() {
+        let mut rows = sample();
+        rows[1] = row(&[(33, "Nr. documento"), (39, "N/A")]);
         assert!(parse_invoice_rows(&rows).is_err());
     }
 
