@@ -34,6 +34,8 @@ export type UpdateProduct = {
 	capacity?: number | null;
 	nicotine?: number | null;
 	packages?: number | null;
+	admCode?: string | null;
+	tabella?: number | null;
 };
 
 export type PaginatedProducts = {

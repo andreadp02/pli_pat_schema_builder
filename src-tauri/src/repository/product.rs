@@ -87,6 +87,10 @@ pub struct UpdateProduct {
     pub capacity: Option<u32>,
     pub nicotine: Option<u32>,
     pub packages: Option<u32>,
+    #[serde(default)]
+    pub adm_code: Option<String>,
+    #[serde(default)]
+    pub tabella: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -195,6 +199,14 @@ fn normalize_product_code(code: &str) -> String {
     code.trim().to_uppercase()
 }
 
+/// adm_code is stored uppercased/trimmed like `code`; empty collapses to None so a blank skeleton
+/// cell (via NULLIF) leaves the existing value untouched.
+fn normalize_adm_code(adm_code: Option<&str>) -> Option<String> {
+    adm_code
+        .map(normalize_product_code)
+        .filter(|code| !code.is_empty())
+}
+
 /// Validate the type-specific fields and return them split into (capacity, nicotine, packages),
 /// enforcing the same per-type invariant as the table's CHECK constraint.
 fn split_type_fields(
@@ -253,7 +265,7 @@ fn create_product_sync(db_path: &Path, input: NewProduct) -> Result<i64, AppErro
             opt_value(capacity),
             opt_value(nicotine),
             opt_value(packages),
-            adm_code,
+            normalize_adm_code(adm_code.as_deref()),
             tabella
         ],
     )
@@ -315,8 +327,8 @@ fn insert_products_in_batches(
             params_values.push(opt_value(capacity));
             params_values.push(opt_value(nicotine));
             params_values.push(opt_value(packages));
-            params_values.push(match &product.adm_code {
-                Some(code) => Value::from(code.clone()),
+            params_values.push(match normalize_adm_code(product.adm_code.as_deref()) {
+                Some(code) => Value::from(code),
                 None => Value::Null,
             });
             params_values.push(match product.tabella {
@@ -372,7 +384,7 @@ fn update_products_from_skeleton_sync(
                     row.description,
                     row.capacity.map(i64::from),
                     row.nicotine.map(i64::from),
-                    row.adm_code.clone().unwrap_or_default(),
+                    normalize_adm_code(row.adm_code.as_deref()).unwrap_or_default(),
                     row.tabella,
                     code,
                 ])
@@ -560,6 +572,11 @@ fn update_product_sync(db_path: &Path, id: i64, input: UpdateProduct) -> Result<
     }
     let next_description = input.description.unwrap_or(existing.description);
     let next_units = input.units.unwrap_or(existing.units);
+    let next_adm_code = input
+        .adm_code
+        .map(|code| normalize_product_code(&code))
+        .or(existing.adm_code);
+    let next_tabella = input.tabella.or(existing.tabella);
 
     // product_type is immutable on edit; carry over each existing type-specific value as the default.
     let (next_capacity, next_nicotine, next_packages) = split_type_fields(
@@ -572,8 +589,8 @@ fn update_product_sync(db_path: &Path, id: i64, input: UpdateProduct) -> Result<
     let rows_affected = conn
         .execute(
             "UPDATE product
-             SET code = ?1, description = ?2, units = ?3, capacity = ?4, nicotine = ?5, packages = ?6
-             WHERE id = ?7",
+             SET code = ?1, description = ?2, units = ?3, capacity = ?4, nicotine = ?5, packages = ?6, adm_code = ?7, tabella = ?8
+             WHERE id = ?9",
             params![
                 next_code,
                 next_description,
@@ -581,6 +598,8 @@ fn update_product_sync(db_path: &Path, id: i64, input: UpdateProduct) -> Result<
                 opt_value(next_capacity),
                 opt_value(next_nicotine),
                 opt_value(next_packages),
+                next_adm_code,
+                next_tabella,
                 id
             ],
         )
@@ -802,6 +821,52 @@ mod tests {
             (pat.units, pat.packages, pat.tabella, pat.adm_code.as_deref()),
             (1, Some(9), Some(4), Some("D00005012"))
         );
+
+        std::fs::remove_file(&db).ok();
+    }
+
+    #[test]
+    fn update_product_sets_adm_code_and_preserves_it_when_absent() {
+        let db = temp_db();
+        let id =
+            create_product_sync(&db, new(ProductType::Pli, "p1", Some(10), Some(5), None)).unwrap();
+
+        update_product_sync(
+            &db,
+            id,
+            UpdateProduct {
+                code: None,
+                description: None,
+                units: None,
+                capacity: None,
+                nicotine: None,
+                packages: None,
+                adm_code: Some("D00009999".into()),
+                tabella: None,
+            },
+        )
+        .unwrap();
+        let pli = get_product_by_code_sync(&db, "p1", None).unwrap().unwrap();
+        assert_eq!(pli.adm_code.as_deref(), Some("D00009999"));
+
+        // A subsequent update with adm_code = None must not clobber the value already set.
+        update_product_sync(
+            &db,
+            id,
+            UpdateProduct {
+                code: None,
+                description: None,
+                units: Some(9),
+                capacity: None,
+                nicotine: None,
+                packages: None,
+                adm_code: None,
+                tabella: None,
+            },
+        )
+        .unwrap();
+        let pli = get_product_by_code_sync(&db, "p1", None).unwrap().unwrap();
+        assert_eq!((pli.units, pli.adm_code.as_deref()), (9, Some("D00009999")));
 
         std::fs::remove_file(&db).ok();
     }

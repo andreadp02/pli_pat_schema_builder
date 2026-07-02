@@ -2,6 +2,7 @@
 	import { confirm as confirmDialog, open as openDialog } from '@tauri-apps/plugin-dialog';
 	import {
 		type AmbiguousUploadRow,
+		type InvalidUploadRow,
 		type ProvinceResolution,
 		confirmCustomersExcelUpload,
 		createCustomer,
@@ -14,6 +15,11 @@
 		CUSTOMER_TYPOLOGIES,
 		type NewCustomer
 	} from '$lib/customer-repository';
+	import { notices } from '$lib/notifications.svelte';
+	import Notice from '$lib/Notice.svelte';
+	import Spinner from '$lib/Spinner.svelte';
+
+	const n = notices.customers;
 
 	type CustomerForm = {
 		taxCode: number;
@@ -41,15 +47,16 @@
 	let hasNextPage = $state(false);
 	let loading = $state(false);
 	let saving = $state(false);
-	let errorMsg = $state<string | null>(null);
-	let successMsg = $state<string | null>(null);
+	let uploadingExcel = $state(false);
 	let taxCodeSearch = $state('');
 	let vatSearch = $state('');
 	let typologyFilter = $state<'all' | CustomerTypology>('all');
 	let pendingUploadPath = $state<string | null>(null);
+	let pendingSkippedMessage = $state<string | null>(null);
 	let ambiguousRows = $state<AmbiguousUploadRow[]>([]);
 	let provinceSelections = $state<Record<number, string>>({});
 	let showProvinceResolutionModal = $state(false);
+	let provinceError = $state<string | null>(null);
 
 	let showCreateForm = $state(false);
 	let newForm = $state<CustomerForm>({ ...defaultForm });
@@ -98,7 +105,6 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 
 	async function loadPage(page: number): Promise<void> {
 		loading = true;
-		errorMsg = null;
 
 		try {
 			const result = await getCustomers(
@@ -112,14 +118,14 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 			currentPage = result.page;
 			hasNextPage = result.hasNextPage;
 		} catch (err) {
-			errorMsg = String(err);
+			n.error = String(err);
 		} finally {
 			loading = false;
 		}
 	}
 
 	async function onApplyFilters(): Promise<void> {
-		successMsg = null;
+		n.success = null;
 		await loadPage(1);
 	}
 
@@ -137,7 +143,7 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 		taxCodeSearch = '';
 		vatSearch = '';
 		typologyFilter = 'all';
-		successMsg = null;
+		n.success = null;
 		await loadPage(1);
 	}
 
@@ -153,15 +159,15 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 
 	async function onCreateCustomer(): Promise<void> {
 		saving = true;
-		errorMsg = null;
-		successMsg = null;
+		n.error = null;
+		n.success = null;
 
 		try {
 			await createCustomer(toPayload(newForm));
 			closeCreateForm();
 			await loadPage(1);
 		} catch (err) {
-			errorMsg = String(err);
+			n.error = String(err);
 		} finally {
 			saving = false;
 		}
@@ -179,15 +185,15 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 
 	async function onSaveEdit(id: number): Promise<void> {
 		saving = true;
-		errorMsg = null;
-		successMsg = null;
+		n.error = null;
+		n.success = null;
 
 		try {
 			await updateCustomer(id, toPayload(editForm));
 			cancelEdit();
 			await loadPage(currentPage);
 		} catch (err) {
-			errorMsg = String(err);
+			n.error = String(err);
 		} finally {
 			saving = false;
 		}
@@ -206,23 +212,31 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 		if (!confirmed) return;
 
 		saving = true;
-		errorMsg = null;
-		successMsg = null;
+		n.error = null;
+		n.success = null;
 
 		try {
 			await deleteCustomer(id);
 			const targetPage = customers.length === 1 && currentPage > 1 ? currentPage - 1 : currentPage;
 			await loadPage(targetPage);
 		} catch (err) {
-			errorMsg = String(err);
+			n.error = String(err);
 		} finally {
 			saving = false;
 		}
 	}
 
+	function formatSkippedRows(invalidRows: InvalidUploadRow[]): string | null {
+		if (invalidRows.length === 0) return null;
+		const lines = invalidRows.map((row) =>
+			/^row\s+\d+:/i.test(row.message) ? row.message : `Row ${row.rowNumber}: ${row.message}`
+		);
+		return `${invalidRows.length} row(s) skipped (not imported):\n${lines.join('\n')}`;
+	}
+
 	async function onUploadCustomersExcel(): Promise<void> {
-		errorMsg = null;
-		successMsg = null;
+		n.error = null;
+		n.success = null;
 
 		const selected = await openDialog({
 			multiple: false,
@@ -235,42 +249,40 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 		}
 
 		saving = true;
+		uploadingExcel = true;
 
 		try {
 			const validation = await validateCustomersExcel(selected);
-
-			if (validation.invalidRows.length > 0) {
-				errorMsg = validation.invalidRows
-					.map((row) => (/^row\s+\d+:/i.test(row.message) ? row.message : `Row ${row.rowNumber}: ${row.message}`))
-					.join('\n');
-				window.alert(`Upload failed:\n${errorMsg}`);
-				return;
-			}
+			const skippedMessage = formatSkippedRows(validation.invalidRows);
 
 			if (validation.ambiguousRows.length > 0) {
 				pendingUploadPath = selected;
+				pendingSkippedMessage = skippedMessage;
 				ambiguousRows = validation.ambiguousRows;
 				provinceSelections = {};
+				provinceError = null;
 				showProvinceResolutionModal = true;
 				return;
 			}
 
-			successMsg = await confirmCustomersExcelUpload(selected, []);
-			window.alert(successMsg);
+			n.success = await confirmCustomersExcelUpload(selected, []);
+			n.error = skippedMessage;
 			await loadPage(1);
 		} catch (err) {
-			errorMsg = String(err);
-			window.alert(`Upload failed: ${errorMsg}`);
+			n.error = String(err);
 		} finally {
 			saving = false;
+			uploadingExcel = false;
 		}
 	}
 
 	function closeProvinceResolutionModal(): void {
 		showProvinceResolutionModal = false;
 		pendingUploadPath = null;
+		pendingSkippedMessage = null;
 		ambiguousRows = [];
 		provinceSelections = {};
+		provinceError = null;
 	}
 
 	function setProvinceSelection(rowNumber: number, value: string): void {
@@ -292,13 +304,15 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 
 		if (missingRows.length > 0) {
 			const rows = missingRows.map((row) => row.rowNumber).join(', ');
-			window.alert(`Select a province for row(s): ${rows}`);
+			provinceError = `Select a province for row(s): ${rows}`;
 			return;
 		}
 
 		saving = true;
-		errorMsg = null;
-		successMsg = null;
+		uploadingExcel = true;
+		provinceError = null;
+		n.error = null;
+		n.success = null;
 
 		try {
 			const resolutions: ProvinceResolution[] = ambiguousRows.map((row) => ({
@@ -306,15 +320,15 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 				provinceName: provinceSelections[row.rowNumber]
 			}));
 
-			successMsg = await confirmCustomersExcelUpload(pendingUploadPath, resolutions);
-			window.alert(successMsg);
+			n.success = await confirmCustomersExcelUpload(pendingUploadPath, resolutions);
+			n.error = pendingSkippedMessage;
 			closeProvinceResolutionModal();
 			await loadPage(1);
 		} catch (err) {
-			errorMsg = String(err);
-			window.alert(`Upload failed: ${errorMsg}`);
+			provinceError = String(err);
 		} finally {
 			saving = false;
+			uploadingExcel = false;
 		}
 	}
 
@@ -332,9 +346,10 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 					<button
 						type="button"
 						onclick={onUploadCustomersExcel}
-						class="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
+						class="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
 						disabled={saving}
 					>
+						{#if uploadingExcel}<Spinner class="h-4 w-4" />{/if}
 						Upload Excel
 					</button>
 					<button
@@ -365,13 +380,7 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 				</div>
 			</div>
 
-			{#if errorMsg}
-				<p class="mb-4 whitespace-pre-line rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMsg}</p>
-			{/if}
-
-			{#if successMsg}
-				<p class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{successMsg}</p>
-			{/if}
+			<Notice notice={n} />
 
 			<form
 				onsubmit={(event) => {
@@ -546,6 +555,10 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 				<h3 class="text-base font-semibold text-slate-900">Resolve Province For Ambiguous Rows</h3>
 				<p class="mt-1 text-sm text-slate-600">Province is missing and municipality maps to multiple provinces. Select one province for each row.</p>
 
+				{#if provinceError}
+					<p class="mt-3 whitespace-pre-line rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{provinceError}</p>
+				{/if}
+
 				<div class="mt-4 max-h-[55vh] overflow-auto rounded-lg border border-slate-200">
 					<table class="min-w-full border-collapse">
 						<thead>
@@ -597,9 +610,10 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 					<button
 						type="button"
 						onclick={onConfirmProvinceResolutions}
-						class="rounded-md bg-blue-700 px-3 py-2 text-sm font-medium text-white hover:bg-blue-800 disabled:opacity-50"
+						class="inline-flex items-center gap-2 rounded-md bg-blue-700 px-3 py-2 text-sm font-medium text-white hover:bg-blue-800 disabled:opacity-50"
 						disabled={saving}
 					>
+						{#if uploadingExcel}<Spinner class="h-4 w-4" />{/if}
 						Confirm Upload
 					</button>
 				</div>

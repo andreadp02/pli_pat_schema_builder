@@ -6,6 +6,11 @@
 		type TemplateKind,
 		type TemplatesStatus
 	} from '$lib/template-repository';
+	import { notices } from '$lib/notifications.svelte';
+	import Notice from '$lib/Notice.svelte';
+	import Spinner from '$lib/Spinner.svelte';
+
+	const n = notices.templates;
 
 	const TEMPLATES: { kind: TemplateKind; title: string; description: string }[] = [
 		{
@@ -23,24 +28,22 @@
 	let status = $state<TemplatesStatus>({ pli: false, pat: false });
 	let loading = $state(false);
 	let saving = $state(false);
-	let errorMsg = $state<string | null>(null);
-	let successMsg = $state<string | null>(null);
+	let uploadingKind = $state<TemplateKind | null>(null);
 
 	async function loadStatus(): Promise<void> {
 		loading = true;
-		errorMsg = null;
 		try {
 			status = await getTemplatesStatus();
 		} catch (err) {
-			errorMsg = String(err);
+			n.error = String(err);
 		} finally {
 			loading = false;
 		}
 	}
 
 	async function onUpload(kind: TemplateKind): Promise<void> {
-		errorMsg = null;
-		successMsg = null;
+		n.error = null;
+		n.success = null;
 
 		const selected = await openDialog({
 			multiple: false,
@@ -53,14 +56,16 @@
 		}
 
 		saving = true;
+		uploadingKind = kind;
 		try {
 			await saveTemplate(kind, selected);
-			successMsg = `Modello ${kind.toUpperCase()} salvato.`;
+			n.success = `Modello ${kind.toUpperCase()} salvato.`;
 			await loadStatus();
 		} catch (err) {
-			errorMsg = String(err);
+			n.error = String(err);
 		} finally {
 			saving = false;
+			uploadingKind = null;
 		}
 	}
 
@@ -80,16 +85,7 @@
 				</p>
 			</div>
 
-			{#if errorMsg}
-				<div class="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-					{errorMsg}
-				</div>
-			{/if}
-			{#if successMsg}
-				<div class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-					{successMsg}
-				</div>
-			{/if}
+			<Notice notice={n} />
 
 			<div class="space-y-4">
 				{#each TEMPLATES as template (template.kind)}
@@ -112,9 +108,10 @@
 						<button
 							type="button"
 							onclick={() => onUpload(template.kind)}
-							class="shrink-0 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
+							class="inline-flex shrink-0 items-center gap-2 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
 							disabled={saving || loading}
 						>
+							{#if uploadingKind === template.kind}<Spinner class="h-4 w-4" />{/if}
 							{status[template.kind] ? 'Sostituisci' : 'Carica'}
 						</button>
 					</div>

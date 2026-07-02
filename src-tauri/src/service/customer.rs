@@ -69,10 +69,6 @@ struct ValidationOutcome {
 pub async fn upload_customers_excel(file_path: &Path, db_path: &Path) -> Result<String, AppError> {
     let outcome = validate_rows(file_path, db_path, None).await?;
 
-    if !outcome.invalid_rows.is_empty() {
-        return Err(AppError::Processing(format_invalid_rows(&outcome.invalid_rows)));
-    }
-
     if !outcome.ambiguous_rows.is_empty() {
         return Err(AppError::Processing(
             "Province is missing for one or more rows. Please validate upload and select province for ambiguous rows."
@@ -80,8 +76,9 @@ pub async fn upload_customers_excel(file_path: &Path, db_path: &Path) -> Result<
         ));
     }
 
+    let skipped = outcome.invalid_rows.len();
     let inserted = customer::create_customers_bulk(db_path.to_path_buf(), outcome.ready_rows).await?;
-    Ok(format!("Imported {inserted} customers successfully"))
+    Ok(format_import_summary(inserted, skipped))
 }
 
 pub async fn validate_customers_excel(
@@ -105,10 +102,6 @@ pub async fn confirm_customers_excel_upload(
     let resolution_map = build_resolution_map(resolutions);
     let outcome = validate_rows(file_path, db_path, Some(&resolution_map)).await?;
 
-    if !outcome.invalid_rows.is_empty() {
-        return Err(AppError::Processing(format_invalid_rows(&outcome.invalid_rows)));
-    }
-
     if !outcome.ambiguous_rows.is_empty() {
         let unresolved_rows = outcome
             .ambiguous_rows
@@ -121,8 +114,17 @@ pub async fn confirm_customers_excel_upload(
         )));
     }
 
+    let skipped = outcome.invalid_rows.len();
     let inserted = customer::create_customers_bulk(db_path.to_path_buf(), outcome.ready_rows).await?;
-    Ok(format!("Imported {inserted} customers successfully"))
+    Ok(format_import_summary(inserted, skipped))
+}
+
+fn format_import_summary(inserted: usize, skipped: usize) -> String {
+    if skipped == 0 {
+        format!("Imported {inserted} customers successfully")
+    } else {
+        format!("Imported {inserted} customers successfully, skipped {skipped} invalid row(s)")
+    }
 }
 
 async fn validate_rows(
@@ -301,6 +303,14 @@ fn parse_customer_rows(
     for (row_index, row) in rows.iter().enumerate().skip(DATA_START_ROW_INDEX) {
         let row_number = row_index + 1;
 
+        // calamine's used range runs to the sheet's stored dimension, which for ADM exports extends
+        // past the real data with trailing rows that carry stray cells but no tax_code. A row without
+        // a tax_code (the customer key) is not importable, so skip it — same as product import skipping
+        // rows without `gruppo`.
+        if get_optional_by_index(row, tax_code_idx).is_none() {
+            continue;
+        }
+
         match parse_customer_row(
             row,
             row_number,
@@ -351,7 +361,10 @@ fn parse_customer_row(
         row_number,
         tax_code,
         ordinal_number,
-        typology: get_required_by_index(row, typology_idx, row_number, "typology")?.to_string(),
+        typology: validate_typology(
+            get_required_by_index(row, typology_idx, row_number, "typology")?,
+            row_number,
+        )?,
         vat_number: vat_idx.and_then(|idx| get_optional_by_index(row, idx)),
         address: get_required_by_index(row, address_idx, row_number, "address")?.to_string(),
         municipality_name: get_required_by_index(
@@ -426,6 +439,21 @@ fn get_required_by_index<'a>(
     Ok(value)
 }
 
+// Validate against the enum at parse time so a bad typology is skipped+reported, not left to blow up
+// the all-or-nothing bulk insert (customer.typology has a CHECK constraint).
+fn validate_typology(value: &str, row_number: usize) -> Result<String, AppError> {
+    let normalized = value.trim().to_uppercase();
+    match normalized.as_str() {
+        customer::TYPOLOGY_ESERCIZIO_DI_VICINATO
+        | customer::TYPOLOGY_RIVENDITA
+        | customer::TYPOLOGY_FARMACIA
+        | customer::TYPOLOGY_PARAFARMACIA => Ok(normalized),
+        _ => Err(AppError::Processing(format!(
+            "Row {row_number}: invalid typology '{value}'"
+        ))),
+    }
+}
+
 fn get_optional_by_index(row: &ExcelRow, index: usize) -> Option<String> {
     row.cells.get(index).and_then(|cell| {
         let trimmed = cell.trim();
@@ -472,10 +500,6 @@ fn build_resolution_map(resolutions: Vec<ProvinceResolution>) -> HashMap<usize, 
     map
 }
 
-fn format_invalid_rows(invalid_rows: &[InvalidUploadRow]) -> String {
-    invalid_rows
-        .iter()
-        .map(|row| format!("Row {}: {}", row.row_number, row.message))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
+#[cfg(test)]
+#[path = "customer_tests.rs"]
+mod tests;

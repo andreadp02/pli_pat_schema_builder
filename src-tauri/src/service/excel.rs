@@ -33,8 +33,9 @@ pub const PAT_SHEET: &str = "PROSPETTO IMMISSIONI IN CONSUMO";
 const PAT_START_ROW: u32 = 2;
 
 /// Reads every invoice, matches each to a customer and its excise lines to products, and fills the
-/// two saved templates. Missing customers/products and bad invoice numbers are collected as
-/// warnings rather than aborting the whole run.
+/// two saved templates. Any problem with an invoice (bad number, missing customer, missing/incomplete
+/// product) drops the whole invoice — none of its rows reach the output — and is collected as a
+/// warning rather than aborting the run.
 pub async fn generate_tracciati(
     invoice_paths: Vec<String>,
     fortnight_end: String,
@@ -50,6 +51,7 @@ pub async fn generate_tracciati(
     // PAT writes the fortnight end as a real date; PLI writes only its month ("MM/YYYY").
     let (year, month, day) = parse_fortnight_end(&fortnight_end)?;
     let pli_period = format!("{month:02}/{year:04}");
+    let (period_start, period_end) = fortnight_range(year, month, day);
 
     let mut pli_rows: Vec<Vec<TemplateCell>> = Vec::new();
     let mut pat_rows: Vec<Vec<TemplateCell>> = Vec::new();
@@ -64,6 +66,15 @@ pub async fn generate_tracciati(
             }
         };
 
+        if invoice.date < period_start || invoice.date > period_end {
+            let (y, m, d) = invoice.date;
+            warnings.push(format!(
+                "Invoice {}: date {d:02}/{m:02}/{y:04} outside selected period (skipped)",
+                invoice.number
+            ));
+            continue;
+        }
+
         let Some(customer) = resolve_customer(db_path, &invoice).await? else {
             warnings.push(format!(
                 "Invoice {}: customer not found (CF '{}', P.IVA '{}')",
@@ -71,6 +82,12 @@ pub async fn generate_tracciati(
             ));
             continue;
         };
+
+        // Buffer this invoice's rows: commit them only if every line is clean, so a single bad line
+        // drops the whole invoice from the output.
+        let mut inv_pli: Vec<Vec<TemplateCell>> = Vec::new();
+        let mut inv_pat: Vec<Vec<TemplateCell>> = Vec::new();
+        let mut problem: Option<String> = None;
 
         for line in &invoice.lines {
             let product = product_repository::get_product_by_code(
@@ -81,34 +98,37 @@ pub async fn generate_tracciati(
             .await?;
 
             let Some(product) = product else {
-                // An excise line whose product is not in the DB is a hard error: abort with no
-                // output so the operator can fix the products table first.
-                return Err(AppError::Processing(format!(
-                    "Product '{}' (invoice {}) is not in the products database — customer P.IVA '{}', C.F. '{}'. No files were generated.",
-                    line.code,
-                    invoice.number,
-                    customer.vat_number.as_deref().unwrap_or("-"),
-                    customer.tax_code
-                )));
+                problem = Some(format!(
+                    "Invoice {}: product '{}' is not in the products database (invoice skipped)",
+                    invoice.number, line.code
+                ));
+                break;
             };
 
             if !product.is_skeleton_complete() {
-                warnings.push(format!(
-                    "Invoice {}: product '{}' has no skeleton data (skipped)",
+                problem = Some(format!(
+                    "Invoice {}: product '{}' has no skeleton data (invoice skipped)",
                     invoice.number, line.code
                 ));
-                continue;
+                break;
             }
 
             match product.product_type {
                 ProductType::Pli => {
-                    pli_rows.push(build_pli_row(&customer, &product, &invoice, line, &pli_period))
+                    inv_pli.push(build_pli_row(&customer, &product, &invoice, line, &pli_period))
                 }
-                ProductType::Pat => pat_rows.push(build_pat_row(
+                ProductType::Pat => inv_pat.push(build_pat_row(
                     &customer, &product, &invoice, line, year, month, day,
                 )),
             }
         }
+
+        if let Some(warning) = problem {
+            warnings.push(warning);
+            continue;
+        }
+        pli_rows.extend(inv_pli);
+        pat_rows.extend(inv_pat);
     }
 
     let pli_output = output_dir.join("tracciati_pli.xlsx");
@@ -173,6 +193,14 @@ fn parse_fortnight_end(iso: &str) -> Result<(i32, i32, i32), AppError> {
     ))
 }
 
+/// The selected fortnight, inclusive: day 1..15 for the first half, 16..end-of-month for the second
+/// (the end day is the last day of the month, as the frontend proposes). Invoices dated outside are
+/// dropped. Tuples are (year, month, day) so plain comparison orders them correctly.
+fn fortnight_range(year: i32, month: i32, end_day: i32) -> ((i32, i32, i32), (i32, i32, i32)) {
+    let start_day = if end_day <= 15 { 1 } else { 16 };
+    ((year, month, start_day), (year, month, end_day))
+}
+
 fn build_pli_row(
     customer: &Customer,
     product: &Product,
@@ -188,6 +216,11 @@ fn build_pli_row(
         (tax_code, String::new())
     };
     let confezioni = i64::from(product.units) * line.quantity;
+    let product_code = product
+        .adm_code
+        .clone()
+        .filter(|c| !c.is_empty())
+        .unwrap_or_else(|| product.code.clone());
 
     vec![
         cell(4, pli_period.to_string()),                           // D Data mese (MM/YYYY)
@@ -198,7 +231,7 @@ fn build_pli_row(
         cell(9, customer.province_name.clone()),                  // I Provincia
         cell(10, customer.vat_number.clone().unwrap_or_default()), // J CF/P.IVA
         cell(11, product.description.clone()),                    // K Denominazione
-        cell(12, product.code.clone()),                           // L Codice prodotto
+        cell(12, product_code),                                   // L Codice prodotto (ADM se impostato)
         cell(13, product.capacity.unwrap_or(0).to_string()),      // M Capacità
         cell(14, product.nicotine.unwrap_or(0).to_string()),      // N Nicotina
         cell(15, confezioni.to_string()),                         // O Numero di confezioni (B)
@@ -241,4 +274,25 @@ fn build_pat_row(
         cell(18, invoice.number.to_string()),                     // R N. Fattura (working)
         // S Accisa = Excel formula — left untouched so Excel computes it.
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fortnight_range_splits_and_bounds_inclusively() {
+        // First half: 15 → [1, 15].
+        let (start, end) = fortnight_range(2026, 6, 15);
+        assert_eq!(start, (2026, 6, 1));
+        assert_eq!(end, (2026, 6, 15));
+        assert!((2026, 6, 1) >= start && (2026, 6, 15) <= end); // endpoints included
+        assert!((2026, 5, 31) < start); // previous month out
+        assert!((2026, 6, 16) > end); // next fortnight out
+
+        // Second half: end-of-month 30 → [16, 30].
+        let (start, _) = fortnight_range(2026, 6, 30);
+        assert_eq!(start, (2026, 6, 16));
+        assert!((2026, 6, 15) < start); // first fortnight out
+    }
 }

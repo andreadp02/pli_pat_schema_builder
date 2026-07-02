@@ -14,6 +14,7 @@ pub struct InvoiceLine {
 #[derive(Debug, Clone)]
 pub struct Invoice {
     pub number: i64,
+    pub date: (i32, i32, i32), // (year, month, day) from "Data documento" (cell AP20)
     pub fiscal_code: String,
     pub vat: String,
     pub lines: Vec<InvoiceLine>,
@@ -36,6 +37,13 @@ fn parse_invoice_rows(rows: &[ExcelRow]) -> Result<Invoice, AppError> {
         ))
     })?;
 
+    let raw_date = value_right_of_label(rows, &["data documento"]).ok_or_else(|| {
+        AppError::Processing("Invoice date ('Data documento') not found".to_string())
+    })?;
+    let date = parse_date_dmy(&raw_date).ok_or_else(|| {
+        AppError::Processing(format!("Invoice date must be DD/MM/YYYY, found '{raw_date}'"))
+    })?;
+
     let fiscal_code = value_right_of_label(rows, &["cod.fisc"]).unwrap_or_default();
     let vat = value_right_of_label(rows, &["p.iva"]).unwrap_or_default();
 
@@ -43,10 +51,24 @@ fn parse_invoice_rows(rows: &[ExcelRow]) -> Result<Invoice, AppError> {
 
     Ok(Invoice {
         number,
+        date,
         fiscal_code,
         vat,
         lines,
     })
+}
+
+/// Parses the invoice date the real files store as the text "DD/MM/YYYY".
+// ponytail: string form only — a rare serial-date cell fails here and drops the invoice with a warning.
+fn parse_date_dmy(value: &str) -> Option<(i32, i32, i32)> {
+    let mut parts = value.trim().split('/');
+    let day = parts.next()?.trim().parse().ok()?;
+    let month = parts.next()?.trim().parse().ok()?;
+    let year = parts.next()?.trim().parse().ok()?;
+    if parts.next().is_some() {
+        return None;
+    }
+    Some((year, month, day))
 }
 
 fn parse_lines(rows: &[ExcelRow]) -> Result<Vec<InvoiceLine>, AppError> {
@@ -162,6 +184,7 @@ mod tests {
         vec![
             row(&[(20, "P.IVA:"), (23, "02910280805"), (31, "COD.FISC:"), (36, "CRSGLM78T08L063J")]),
             row(&[(33, "Nr. documento"), (39, "00784"), (40, "/D")]),
+            row(&[(33, "Data documento"), (41, "15/04/2026")]),
             row(&[(1, "Articolo"), (9, "Descrizione"), (27, "Q.tà"), (37, "Accise")]),
             row(&[(1, ".Rif"), (27, "0")]), // no Accise → skipped
             row(&[(1, "PLN013970"), (27, "4"), (37, "13,81")]),
@@ -172,6 +195,7 @@ mod tests {
     fn parses_number_identifiers_and_only_excise_lines() {
         let invoice = parse_invoice_rows(&sample()).unwrap();
         assert_eq!(invoice.number, 784); // leading zeros stripped
+        assert_eq!(invoice.date, (2026, 4, 15));
         assert_eq!(invoice.fiscal_code, "CRSGLM78T08L063J");
         assert_eq!(invoice.vat, "02910280805");
         assert_eq!(invoice.lines.len(), 1);
@@ -184,5 +208,13 @@ mod tests {
         let mut rows = sample();
         rows[1] = row(&[(33, "Nr. documento"), (39, "784/D")]);
         assert!(parse_invoice_rows(&rows).is_err());
+    }
+
+    #[test]
+    fn parses_and_rejects_dates() {
+        assert_eq!(parse_date_dmy("15/04/2026"), Some((2026, 4, 15)));
+        assert_eq!(parse_date_dmy(" 1/6/2026 "), Some((2026, 6, 1)));
+        assert_eq!(parse_date_dmy("Pag.1/1"), None);
+        assert_eq!(parse_date_dmy("15/04/2026/x"), None);
     }
 }

@@ -198,7 +198,7 @@ fn ensure_customer_tables_on_startup(app: &tauri::AppHandle) -> Result<(), Strin
             tax_code INTEGER NOT NULL UNIQUE,
             ordinal_number INTEGER NOT NULL,
             typology TEXT NOT NULL CHECK (typology IN ('ESERCIZIO DI VICINATO','RIVENDITA','FARMACIA','PARAFARMACIA')),
-            vat_number TEXT UNIQUE,
+            vat_number TEXT,
             address TEXT NOT NULL,
             municipality_id INTEGER NOT NULL,
             FOREIGN KEY (municipality_id) REFERENCES municipality(id)

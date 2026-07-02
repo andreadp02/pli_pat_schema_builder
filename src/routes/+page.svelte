@@ -15,7 +15,10 @@
 		defaultFortnight,
 		type PageState
 	} from '$lib/page-actions';
+	import { notices } from '$lib/notifications.svelte';
+	import Spinner from '$lib/Spinner.svelte';
 
+	const n = notices.home;
 	const fortnights = fortnightOptions();
 
 	let state = $state<PageState>({
@@ -39,6 +42,26 @@
 		dirnamePath: dirname,
 		invokeCommand: invoke
 	};
+
+	async function onPickInvoiceFiles(): Promise<void> {
+		await pickInvoiceFiles(state, deps);
+		n.error = null;
+	}
+
+	async function onGenerate(): Promise<void> {
+		await generate(state, deps);
+		n.error = state.errorMsg;
+	}
+
+	function onRemoveFile(file: string): void {
+		removeFile(state, file);
+		n.error = null;
+	}
+
+	function onReset(): void {
+		reset(state);
+		n.error = null;
+	}
 </script>
 
 <div class="h-full bg-gray-50 flex flex-col">
@@ -48,7 +71,7 @@
 			<h2 class="text-lg font-semibold text-gray-800">1. Select Invoices</h2>
 
 			<button
-				onclick={() => pickInvoiceFiles(state, deps)}
+				onclick={onPickInvoiceFiles}
 				class="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-blue-600 text-white font-medium
 				       hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-colors"
 			>
@@ -62,7 +85,7 @@
 						<div class="flex items-center gap-2 text-sm text-gray-600 bg-gray-50 rounded-lg px-4 py-2">
 							<span class="truncate font-mono flex-1" title={file}>{shortenPath(file)}</span>
 							<button
-								onclick={() => removeFile(state, file)}
+								onclick={() => onRemoveFile(file)}
 								title="Remove"
 								aria-label="Remove file"
 								class="shrink-0 text-gray-400 hover:text-red-600 focus:outline-none text-lg leading-none px-1"
@@ -116,18 +139,19 @@
 
 			<div class="flex gap-3">
 				<button
-					onclick={() => generate(state, deps)}
+					onclick={onGenerate}
 					disabled={state.selectedFiles.length === 0 || !state.outputDir || !state.fortnightEnd || state.processing}
 					class="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg bg-green-600 text-white font-semibold
 					       hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2
 					       disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
 				>
+					{#if state.processing}<Spinner class="h-4 w-4" />{/if}
 					{state.processing ? 'Generating…' : 'Generate tracciati'}
 				</button>
 
-				{#if state.result || state.errorMsg}
+				{#if state.result || n.error}
 					<button
-						onclick={() => reset(state)}
+						onclick={onReset}
 						class="px-4 py-2.5 rounded-lg border border-gray-300 text-gray-600 font-medium
 						       hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-400 transition-colors"
 					>
@@ -136,9 +160,10 @@
 				{/if}
 			</div>
 
-			{#if state.errorMsg}
-				<div class="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
-					{state.errorMsg}
+			{#if n.error}
+				<div class="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
+					<p class="flex-1">{n.error}</p>
+					<button type="button" aria-label="Dismiss" class="shrink-0 text-lg leading-none text-red-400 hover:text-red-700" onclick={() => (n.error = null)}>&times;</button>
 				</div>
 			{/if}
 

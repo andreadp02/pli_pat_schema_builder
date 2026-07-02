@@ -133,7 +133,7 @@ DB SQLite in `app_data_dir`, file **`pli_pat.db`** (vedi `utils::DB_FILE_NAME`).
 | Tabella | Note |
 |---------|------|
 | `product` | `product_type` ('pli'/'pat', CHECK), `code` UNIQUE non vuoto, `description`, `units`, e i campi opzionali per tipo: **`capacity`**+**`nicotine`** (PLI), **`packages`** (PAT). Più `adm_code` (codice ADM, PAT → tracciati_pat col L) e `tabella` (PAT → tracciati_pat col K), entrambi dallo **scheletro**. Migrazione idempotente in `lib.rs` (`add_column_if_missing`) per DB esistenti |
-| `customer` | `tax_code` UNIQUE, `ordinal_number`, `typology` (CHECK enum), `vat_number` UNIQUE nullable, `address`, `municipality_id` FK |
+| `customer` | `tax_code` UNIQUE, `ordinal_number`, `typology` (CHECK enum), `vat_number` nullable (NON unico: una stessa P.IVA ha più punti vendita), `address`, `municipality_id` FK |
 | `municipality` | `name` + `province_name`, UNIQUE(name, province_name) |
 
 - **PLI vs PAT:** un'unica tabella `product` discriminata da `product_type`. I campi specifici sono colonne nullable, con un `CHECK` che impone solo la *forma* per tipo (PLI ha `packages` NULL; PAT ha `capacity`/`nicotine` NULL). I campi posseduti dallo scheletro restano NULL fino all'upload: un prodotto **incompleto** (PLI senza capacity/nicotine, PAT senza adm_code) è taggato in UI e **saltato** nella generazione tracciati — vedi `Product::is_skeleton_complete`. `code` è UNIQUE globale: la ricerca per codice è una sola query indicizzata. Esposta al frontend come tipo `Product` con campi opzionali.

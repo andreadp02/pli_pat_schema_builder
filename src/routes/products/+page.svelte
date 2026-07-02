@@ -11,6 +11,11 @@
 		type Product,
 		type ProductType
 	} from '$lib/product-repository';
+	import { notices } from '$lib/notifications.svelte';
+	import Notice from '$lib/Notice.svelte';
+	import Spinner from '$lib/Spinner.svelte';
+
+	const n = notices.products;
 
 	type ProductForm = {
 		code: string;
@@ -20,6 +25,8 @@
 		capacity: number;
 		nicotine: number;
 		packages: number;
+		admCode: string;
+		tabella: number;
 	};
 
 	const defaultForm: ProductForm = {
@@ -29,7 +36,9 @@
 		productType: 'pli',
 		capacity: 0,
 		nicotine: 0,
-		packages: 0
+		packages: 0,
+		admCode: '',
+		tabella: 0
 	};
 
 	let products = $state<Product[]>([]);
@@ -38,8 +47,8 @@
 	let hasNextPage = $state(false);
 	let loading = $state(false);
 	let saving = $state(false);
-	let errorMsg = $state<string | null>(null);
-	let successMsg = $state<string | null>(null);
+	let uploadingExcel = $state(false);
+	let uploadingSkeleton = $state(false);
 	let codeSearch = $state('');
 	let productTypeFilter = $state<'all' | 'pli' | 'pat'>('all');
 	let incompleteOnly = $state(false);
@@ -68,15 +77,14 @@
 			: !!product.admCode;
 	}
 
-	// Base columns (ID, Code, Description, Units, Type, Actions) + the type-specific ones the
-	// current filter reveals: PLI → capacity+nicotine, PAT → packages+admCode+tabella, All → none.
+	// Base columns (ID, Code, Description, Units, Type, ADM Code, Actions) + the type-specific ones
+	// the current filter reveals: PLI → capacity+nicotine, PAT → packages+tabella, All → none.
 	const columnCount = $derived(
-		productTypeFilter === 'pli' ? 8 : productTypeFilter === 'pat' ? 9 : 6
+		productTypeFilter === 'pli' ? 9 : productTypeFilter === 'pat' ? 9 : 7
 	);
 
 	async function loadPage(page: number): Promise<void> {
 		loading = true;
-		errorMsg = null;
 
 		try {
 			const result = await getProducts(
@@ -90,14 +98,14 @@
 			currentPage = result.page;
 			hasNextPage = result.hasNextPage;
 		} catch (err) {
-			errorMsg = String(err);
+			n.error = String(err);
 		} finally {
 			loading = false;
 		}
 	}
 
 	async function onApplyFilters(): Promise<void> {
-		successMsg = null;
+		n.success = null;
 		await loadPage(1);
 	}
 
@@ -114,7 +122,7 @@
 		codeSearch = '';
 		productTypeFilter = 'all';
 		incompleteOnly = false;
-		successMsg = null;
+		n.success = null;
 		await loadPage(1);
 	}
 
@@ -130,12 +138,12 @@
 
 	async function onCreateProduct(): Promise<void> {
 		saving = true;
-		errorMsg = null;
-		successMsg = null;
+		n.error = null;
+		n.success = null;
 
 		const trimmedCode = newForm.code.trim();
 		if (!trimmedCode) {
-			errorMsg = 'Product code cannot be empty.';
+			n.error = 'Product code cannot be empty.';
 			saving = false;
 			return;
 		}
@@ -148,13 +156,15 @@
 				units: Number(newForm.units),
 				capacity: newForm.productType === 'pli' ? Number(newForm.capacity) : undefined,
 				nicotine: newForm.productType === 'pli' ? Number(newForm.nicotine) : undefined,
-				packages: newForm.productType === 'pat' ? Number(newForm.packages) : undefined
+				packages: newForm.productType === 'pat' ? Number(newForm.packages) : undefined,
+				admCode: newForm.admCode.trim() || undefined,
+				tabella: newForm.productType === 'pat' ? Number(newForm.tabella) : undefined
 			};
 			await createProduct(payload);
 			closeCreateForm();
 			await loadPage(1);
 		} catch (err) {
-			errorMsg = String(err);
+			n.error = String(err);
 		} finally {
 			saving = false;
 		}
@@ -169,7 +179,9 @@
 			productType: product.productType,
 			capacity: product.capacity ?? 0,
 			nicotine: product.nicotine ?? 0,
-			packages: product.packages ?? 0
+			packages: product.packages ?? 0,
+			admCode: product.admCode ?? '',
+			tabella: product.tabella ?? 0
 		};
 	}
 
@@ -186,12 +198,12 @@
 
 	async function onSaveEdit(id: number): Promise<void> {
 		saving = true;
-		errorMsg = null;
-		successMsg = null;
+		n.error = null;
+		n.success = null;
 
 		const trimmedCode = editForm.code.trim();
 		if (!trimmedCode) {
-			errorMsg = 'Product code cannot be empty.';
+			n.error = 'Product code cannot be empty.';
 			saving = false;
 			return;
 		}
@@ -203,12 +215,14 @@
 				units: Number(editForm.units),
 				capacity: editForm.productType === 'pli' ? Number(editForm.capacity) : undefined,
 				nicotine: editForm.productType === 'pli' ? Number(editForm.nicotine) : undefined,
-				packages: editForm.productType === 'pat' ? Number(editForm.packages) : undefined
+				packages: editForm.productType === 'pat' ? Number(editForm.packages) : undefined,
+				admCode: editForm.admCode.trim(),
+				tabella: editForm.productType === 'pat' ? Number(editForm.tabella) : undefined
 			});
 			cancelEdit();
 			await loadPage(currentPage);
 		} catch (err) {
-			errorMsg = String(err);
+			n.error = String(err);
 		} finally {
 			saving = false;
 		}
@@ -227,23 +241,23 @@
 		if (!confirmed) return;
 
 		saving = true;
-		errorMsg = null;
-		successMsg = null;
+		n.error = null;
+		n.success = null;
 
 		try {
 			await deleteProduct(id);
 			const targetPage = products.length === 1 && currentPage > 1 ? currentPage - 1 : currentPage;
 			await loadPage(targetPage);
 		} catch (err) {
-			errorMsg = String(err);
+			n.error = String(err);
 		} finally {
 			saving = false;
 		}
 	}
 
 	async function onUploadProductsExcel(): Promise<void> {
-		errorMsg = null;
-		successMsg = null;
+		n.error = null;
+		n.success = null;
 
 		const selected = await openDialog({
 			multiple: false,
@@ -256,20 +270,22 @@
 		}
 
 		saving = true;
+		uploadingExcel = true;
 
 		try {
-			successMsg = await uploadProductsExcel(selected);
+			n.success = await uploadProductsExcel(selected);
 			await loadPage(1);
 		} catch (err) {
-			errorMsg = String(err);
+			n.error = String(err);
 		} finally {
 			saving = false;
+			uploadingExcel = false;
 		}
 	}
 
 	async function onUploadSkeletonExcel(): Promise<void> {
-		errorMsg = null;
-		successMsg = null;
+		n.error = null;
+		n.success = null;
 
 		const selected = await openDialog({
 			multiple: false,
@@ -282,14 +298,16 @@
 		}
 
 		saving = true;
+		uploadingSkeleton = true;
 
 		try {
-			successMsg = await uploadSkeletonExcel(selected);
+			n.success = await uploadSkeletonExcel(selected);
 			await loadPage(1);
 		} catch (err) {
-			errorMsg = String(err);
+			n.error = String(err);
 		} finally {
 			saving = false;
+			uploadingSkeleton = false;
 		}
 	}
 
@@ -301,13 +319,7 @@
 <div class="h-full bg-gray-50">
 	<main class="mx-auto max-w-7xl px-6 py-8">
 		<section class="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 md:p-6">
-			{#if errorMsg}
-				<p class="mb-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{errorMsg}</p>
-			{/if}
-
-			{#if successMsg}
-				<p class="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{successMsg}</p>
-			{/if}
+			<Notice notice={n} />
 
 			<div class="flex items-center justify-between gap-4 mb-5">
 				<h2 class="text-lg font-semibold text-slate-900">Product Table</h2>
@@ -315,17 +327,19 @@
 					<button
 						type="button"
 						onclick={onUploadProductsExcel}
-						class="rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
+						class="inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 disabled:opacity-50"
 						disabled={saving}
 					>
+						{#if uploadingExcel}<Spinner class="h-4 w-4" />{/if}
 						Upload Excel
 					</button>
 					<button
 						type="button"
 						onclick={onUploadSkeletonExcel}
-						class="rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-50"
+						class="inline-flex items-center gap-2 rounded-lg bg-teal-700 px-4 py-2 text-sm font-medium text-white hover:bg-teal-800 disabled:opacity-50"
 						disabled={saving}
 					>
+						{#if uploadingSkeleton}<Spinner class="h-4 w-4" />{/if}
 						Upload Skeleton
 					</button>
 					<button
@@ -402,62 +416,94 @@
 						event.preventDefault();
 						onCreateProduct();
 					}}
-					class="mb-6 grid gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 md:grid-cols-7"
+					class="mb-6 grid gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 md:grid-cols-8"
 				>
-					<input
-						type="text"
-						required
-						placeholder="Code"
-						bind:value={newForm.code}
-						class="rounded-md border border-slate-300 px-3 py-2 text-sm"
-					/>
-					<input
-						type="text"
-						required
-						placeholder="Description"
-						bind:value={newForm.description}
-						class="rounded-md border border-slate-300 px-3 py-2 text-sm md:col-span-2"
-					/>
-					<input
-						type="number"
-						required
-						min="0"
-						placeholder="Units"
-						bind:value={newForm.units}
-						class="rounded-md border border-slate-300 px-3 py-2 text-sm"
-					/>
-					<select bind:value={newForm.productType} class="rounded-md border border-slate-300 px-3 py-2 text-sm">
-						<option value="pli">PLI</option>
-						<option value="pat">PAT</option>
-					</select>
+					<label class="flex flex-col gap-1 text-xs font-medium text-slate-600">
+						Code
+						<input
+							type="text"
+							required
+							bind:value={newForm.code}
+							class="rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+						/>
+					</label>
+					<label class="flex flex-col gap-1 text-xs font-medium text-slate-600 md:col-span-2">
+						Description
+						<input
+							type="text"
+							required
+							bind:value={newForm.description}
+							class="rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+						/>
+					</label>
+					<label class="flex flex-col gap-1 text-xs font-medium text-slate-600">
+						Units
+						<input
+							type="number"
+							required
+							min="0"
+							bind:value={newForm.units}
+							class="rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+						/>
+					</label>
+					<label class="flex flex-col gap-1 text-xs font-medium text-slate-600">
+						Type
+						<select bind:value={newForm.productType} class="rounded-md border border-slate-300 px-3 py-2 text-sm font-normal">
+							<option value="pli">PLI</option>
+							<option value="pat">PAT</option>
+						</select>
+					</label>
+					<label class="flex flex-col gap-1 text-xs font-medium text-slate-600">
+						ADM Code
+						<input
+							type="text"
+							bind:value={newForm.admCode}
+							class="rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+						/>
+					</label>
 					{#if newForm.productType === 'pli'}
-						<input
-							type="number"
-							required
-							min="0"
-							placeholder="Capacity"
-							bind:value={newForm.capacity}
-							class="rounded-md border border-slate-300 px-3 py-2 text-sm"
-						/>
-						<input
-							type="number"
-							required
-							min="0"
-							placeholder="Nicotine"
-							bind:value={newForm.nicotine}
-							class="rounded-md border border-slate-300 px-3 py-2 text-sm"
-						/>
+						<label class="flex flex-col gap-1 text-xs font-medium text-slate-600">
+							Capacity
+							<input
+								type="number"
+								required
+								min="0"
+								bind:value={newForm.capacity}
+								class="rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+							/>
+						</label>
+						<label class="flex flex-col gap-1 text-xs font-medium text-slate-600">
+							Nicotine
+							<input
+								type="number"
+								required
+								min="0"
+								bind:value={newForm.nicotine}
+								class="rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+							/>
+						</label>
 					{:else}
-						<input
-							type="number"
-							required
-							min="0"
-							placeholder="Packages"
-							bind:value={newForm.packages}
-							class="rounded-md border border-slate-300 px-3 py-2 text-sm md:col-span-2"
-						/>
+						<label class="flex flex-col gap-1 text-xs font-medium text-slate-600">
+							Packages
+							<input
+								type="number"
+								required
+								min="0"
+								bind:value={newForm.packages}
+								class="rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+							/>
+						</label>
+						<label class="flex flex-col gap-1 text-xs font-medium text-slate-600">
+							Tabella
+							<input
+								type="number"
+								min="0"
+								bind:value={newForm.tabella}
+								class="rounded-md border border-slate-300 px-3 py-2 text-sm font-normal"
+							/>
+						</label>
 					{/if}
-					<div class="md:col-span-7 flex gap-2">
+					<div class="md:col-span-8 flex gap-2">
 						<button
 							type="submit"
 							class="rounded-md bg-blue-700 px-3 py-2 text-sm font-medium text-white hover:bg-blue-800 disabled:opacity-50"
@@ -485,12 +531,12 @@
 							<th class="px-3 py-3">Description</th>
 							<th class="px-3 py-3">Units</th>
 							<th class="px-3 py-3">Type</th>
+							<th class="px-3 py-3">ADM Code</th>
 							{#if productTypeFilter === 'pli'}
 								<th class="px-3 py-3">Capacity</th>
 								<th class="px-3 py-3">Nicotine</th>
 							{:else if productTypeFilter === 'pat'}
 								<th class="px-3 py-3">Packages</th>
-								<th class="px-3 py-3">ADM Code</th>
 								<th class="px-3 py-3">Tabella</th>
 							{/if}
 							<th class="px-3 py-3">Actions</th>
@@ -522,6 +568,9 @@
 										<td class="px-3 py-3">
 											<span class="text-sm text-slate-600">{editForm.productType.toUpperCase()}</span>
 										</td>
+										<td class="px-3 py-3">
+											<input type="text" bind:value={editForm.admCode} class="w-28 rounded-md border border-slate-300 px-2 py-1 text-sm" />
+										</td>
 										{#if productTypeFilter === 'pli'}
 											<td class="px-3 py-3">
 												<input type="number" min="0" bind:value={editForm.capacity} class="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm" />
@@ -533,8 +582,9 @@
 											<td class="px-3 py-3">
 												<input type="number" min="0" bind:value={editForm.packages} class="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm" />
 											</td>
-											<td class="px-3 py-3 text-sm text-slate-700">{product.admCode ?? '-'}</td>
-											<td class="px-3 py-3 text-sm text-slate-700">{product.tabella ?? '-'}</td>
+											<td class="px-3 py-3">
+												<input type="number" min="0" bind:value={editForm.tabella} class="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm" />
+											</td>
 										{/if}
 										<td class="px-3 py-3">
 											<div class="flex gap-2">
@@ -569,12 +619,12 @@
 										<td class="px-3 py-3 text-sm text-slate-700">{product.description}</td>
 										<td class="px-3 py-3 text-sm text-slate-700">{product.units}</td>
 										<td class="px-3 py-3 text-sm text-slate-700">{product.productType.toUpperCase()}</td>
+										<td class="px-3 py-3 text-sm text-slate-700">{product.admCode ?? '-'}</td>
 										{#if productTypeFilter === 'pli'}
 											<td class="px-3 py-3 text-sm text-slate-700">{product.capacity ?? '-'}</td>
 											<td class="px-3 py-3 text-sm text-slate-700">{product.nicotine ?? '-'}</td>
 										{:else if productTypeFilter === 'pat'}
 											<td class="px-3 py-3 text-sm text-slate-700">{product.packages ?? '-'}</td>
-											<td class="px-3 py-3 text-sm text-slate-700">{product.admCode ?? '-'}</td>
 											<td class="px-3 py-3 text-sm text-slate-700">{product.tabella ?? '-'}</td>
 										{/if}
 										<td class="px-3 py-3">

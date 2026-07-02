@@ -256,7 +256,7 @@ fn parse_skeleton_rows(
                     description: optional_cell(row, *description).unwrap_or_default().to_string(),
                     capacity: optional_cell(row, *capacity).and_then(parse_u32_opt),
                     nicotine: optional_cell(row, *nicotine).and_then(parse_u32_opt),
-                    adm_code: None,
+                    adm_code: pli_adm_code(product_code),
                     tabella: None,
                 });
             }
@@ -310,6 +310,19 @@ fn normalize_skeleton(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
 }
 
+/// PLI tracciato codes drop a single trailing D/K/S that follows the numeric part
+/// ("PL0012162D" → "PL0012162"), stored as the PLI `adm_code`. Returns `None` when the rule
+/// doesn't apply, so COALESCE leaves the column untouched.
+fn pli_adm_code(code: &str) -> Option<String> {
+    let trimmed = code.trim();
+    let mut chars = trimmed.chars().rev();
+    let last = chars.next()?;
+    if !matches!(last.to_ascii_uppercase(), 'D' | 'K' | 'S') || !chars.next()?.is_ascii_digit() {
+        return None;
+    }
+    Some(trimmed[..trimmed.len() - 1].to_string()) // last is ASCII D/K/S → 1 byte
+}
+
 fn parse_u32_opt(value: &str) -> Option<u32> {
     if let Ok(parsed) = value.parse::<i64>() {
         return u32::try_from(parsed).ok();
@@ -355,4 +368,19 @@ fn parse_non_negative_u32(value: &str, row_number: usize, field_name: &str) -> R
             "Invalid {field_name} at row {row_number}: value is out of range"
         ))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pli_adm_code;
+
+    #[test]
+    fn strips_trailing_dks_after_digit_only() {
+        assert_eq!(pli_adm_code("PL0012162D").as_deref(), Some("PL0012162"));
+        assert_eq!(pli_adm_code("PL0012162K").as_deref(), Some("PL0012162"));
+        assert_eq!(pli_adm_code("PL0012162s").as_deref(), Some("PL0012162"));
+        assert_eq!(pli_adm_code("PL0012162"), None); // no trailing letter
+        assert_eq!(pli_adm_code("PLN011954"), None); // ends with digit
+        assert_eq!(pli_adm_code("PLD"), None); // D not preceded by a digit
+    }
 }
