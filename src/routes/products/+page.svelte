@@ -78,10 +78,11 @@
 			: !!product.admCode;
 	}
 
-	// Base columns (ID, Code, Description, Units, Type, ADM Code, Actions) + the type-specific ones
-	// the current filter reveals: PLI → capacity+nicotine, PAT → packages+tabella, All → none.
+	// Base columns (ID, Code, Description, Units, Type, ADM Code, Actions) + the type-specific ones:
+	// PLI → capacity+nicotine, PAT → packages+tabella, All → all four (shown only on wide screens).
+	// colspan may overshoot the visible count when columns are responsively hidden — harmless.
 	const columnCount = $derived(
-		productTypeFilter === 'pli' ? 9 : productTypeFilter === 'pat' ? 9 : 7
+		productTypeFilter === 'pli' ? 9 : productTypeFilter === 'pat' ? 9 : 11
 	);
 
 	async function loadPage(page: number): Promise<void> {
@@ -539,6 +540,11 @@
 							{:else if productTypeFilter === 'pat'}
 								<th class="px-3 py-3">{t('products.packages')}</th>
 								<th class="px-3 py-3">{t('products.tabella')}</th>
+							{:else}
+								<th class="hidden px-3 py-3 xl:table-cell">{t('products.capacity')}</th>
+								<th class="hidden px-3 py-3 xl:table-cell">{t('products.nicotine')}</th>
+								<th class="hidden px-3 py-3 xl:table-cell">{t('products.packages')}</th>
+								<th class="hidden px-3 py-3 xl:table-cell">{t('products.tabella')}</th>
 							{/if}
 							<th class="px-3 py-3">{t('common.actions')}</th>
 						</tr>
@@ -570,7 +576,33 @@
 											<span class="text-sm text-slate-600">{editForm.productType.toUpperCase()}</span>
 										</td>
 										<td class="px-3 py-3">
-											<input type="text" bind:value={editForm.admCode} class="w-28 rounded-md border border-slate-300 px-2 py-1 text-sm" />
+											<div class="flex flex-col gap-2">
+												<input type="text" bind:value={editForm.admCode} class="w-28 rounded-md border border-slate-300 px-2 py-1 text-sm" />
+												{#if productTypeFilter === 'all'}
+													<!-- Narrow-screen fallback: type-specific columns are hidden < xl, so stack them here. -->
+													<div class="flex flex-col gap-2 xl:hidden">
+														{#if editForm.productType === 'pli'}
+															<label class="flex flex-col gap-1 text-xs text-slate-500">
+																{t('products.capacity')}
+																<input type="number" min="0" bind:value={editForm.capacity} class="w-28 rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-900" />
+															</label>
+															<label class="flex flex-col gap-1 text-xs text-slate-500">
+																{t('products.nicotine')}
+																<input type="number" min="0" bind:value={editForm.nicotine} class="w-28 rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-900" />
+															</label>
+														{:else}
+															<label class="flex flex-col gap-1 text-xs text-slate-500">
+																{t('products.packages')}
+																<input type="number" min="0" bind:value={editForm.packages} class="w-28 rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-900" />
+															</label>
+															<label class="flex flex-col gap-1 text-xs text-slate-500">
+																{t('products.tabella')}
+																<input type="number" min="0" bind:value={editForm.tabella} class="w-28 rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-900" />
+															</label>
+														{/if}
+													</div>
+												{/if}
+											</div>
 										</td>
 										{#if productTypeFilter === 'pli'}
 											<td class="px-3 py-3">
@@ -585,6 +617,27 @@
 											</td>
 											<td class="px-3 py-3">
 												<input type="number" min="0" bind:value={editForm.tabella} class="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm" />
+											</td>
+										{:else}
+											<td class="hidden px-3 py-3 xl:table-cell">
+												{#if editForm.productType === 'pli'}
+													<input type="number" min="0" bind:value={editForm.capacity} class="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm" />
+												{:else}<span class="text-sm text-slate-400">-</span>{/if}
+											</td>
+											<td class="hidden px-3 py-3 xl:table-cell">
+												{#if editForm.productType === 'pli'}
+													<input type="number" min="0" bind:value={editForm.nicotine} class="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm" />
+												{:else}<span class="text-sm text-slate-400">-</span>{/if}
+											</td>
+											<td class="hidden px-3 py-3 xl:table-cell">
+												{#if editForm.productType === 'pat'}
+													<input type="number" min="0" bind:value={editForm.packages} class="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm" />
+												{:else}<span class="text-sm text-slate-400">-</span>{/if}
+											</td>
+											<td class="hidden px-3 py-3 xl:table-cell">
+												{#if editForm.productType === 'pat'}
+													<input type="number" min="0" bind:value={editForm.tabella} class="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm" />
+												{:else}<span class="text-sm text-slate-400">-</span>{/if}
 											</td>
 										{/if}
 										<td class="px-3 py-3">
@@ -627,6 +680,11 @@
 										{:else if productTypeFilter === 'pat'}
 											<td class="px-3 py-3 text-sm text-slate-700">{product.packages ?? '-'}</td>
 											<td class="px-3 py-3 text-sm text-slate-700">{product.tabella ?? '-'}</td>
+										{:else}
+											<td class="hidden px-3 py-3 text-sm text-slate-700 xl:table-cell">{product.capacity ?? '-'}</td>
+											<td class="hidden px-3 py-3 text-sm text-slate-700 xl:table-cell">{product.nicotine ?? '-'}</td>
+											<td class="hidden px-3 py-3 text-sm text-slate-700 xl:table-cell">{product.packages ?? '-'}</td>
+											<td class="hidden px-3 py-3 text-sm text-slate-700 xl:table-cell">{product.tabella ?? '-'}</td>
 										{/if}
 										<td class="px-3 py-3">
 											<div class="flex gap-2">
