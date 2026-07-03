@@ -6,7 +6,10 @@ use serde::{Deserialize, Serialize};
 use crate::repository::customer::{self, NewCustomer};
 use crate::repository::excel as excel_repository;
 use crate::service::excel::ExcelRow;
-use crate::utils::{build_header_map, find_optional_header, find_required_header, parse_i64};
+use crate::utils::{
+    build_header_map, find_optional_header, find_required_header, parse_i64,
+    restore_vat_leading_zeros,
+};
 use crate::AppError;
 
 const HEADER_ROW_INDEX: usize = 0;
@@ -365,7 +368,9 @@ fn parse_customer_row(
             get_required_by_index(row, typology_idx, row_number, "typology")?,
             row_number,
         )?,
-        vat_number: vat_idx.and_then(|idx| get_optional_by_index(row, idx)),
+        vat_number: vat_idx
+            .and_then(|idx| get_optional_by_index(row, idx))
+            .map(|vat| restore_vat_leading_zeros(&vat)),
         address: get_required_by_index(row, address_idx, row_number, "address")?.to_string(),
         municipality_name: get_required_by_index(
             row,

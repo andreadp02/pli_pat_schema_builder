@@ -172,6 +172,15 @@ fn cell(column: u32, value: impl Into<String>) -> TemplateCell {
     }
 }
 
+/// Forces an Excel string cell so a numeric-looking value (a P.IVA with a leading zero) keeps its
+/// exact text instead of being coerced to a number.
+fn text_cell(column: u32, value: impl Into<String>) -> TemplateCell {
+    TemplateCell {
+        column,
+        value: CellValue::Str(value.into()),
+    }
+}
+
 fn date_cell(column: u32, year: i32, month: i32, day: i32) -> TemplateCell {
     TemplateCell {
         column,
@@ -229,7 +238,7 @@ fn build_pli_row(
         cell(7, customer.ordinal_number.to_string()),             // G Numero ordinale
         cell(8, customer.municipality_name.clone()),              // H Comune
         cell(9, customer.province_name.clone()),                  // I Provincia
-        cell(10, customer.vat_number.clone().unwrap_or_default()), // J CF/P.IVA
+        text_cell(10, customer.vat_number.clone().unwrap_or_default()), // J CF/P.IVA
         cell(11, product.description.clone()),                    // K Denominazione
         cell(12, product_code),                                   // L Codice prodotto (ADM se impostato)
         cell(13, product.capacity.unwrap_or(0).to_string()),      // M Capacità
@@ -263,7 +272,7 @@ fn build_pat_row(
         cell(7, customer.ordinal_number.to_string()),             // G Numero ordinale
         cell(8, customer.municipality_name.clone()),              // H Comune
         cell(9, customer.province_name.clone()),                  // I Provincia
-        cell(10, customer.vat_number.clone().unwrap_or_default()), // J CF/P.IVA
+        text_cell(10, customer.vat_number.clone().unwrap_or_default()), // J CF/P.IVA
         cell(11, product.tabella.map(|t| t.to_string()).unwrap_or_default()), // K Tabella
         cell(12, product.adm_code.clone().unwrap_or_default()),   // L Codice prodotto (ADM)
         cell(13, product.description.clone()),                    // M Denominazione

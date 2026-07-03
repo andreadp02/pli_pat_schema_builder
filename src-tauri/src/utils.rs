@@ -34,6 +34,18 @@ fn resolve_app_data_path(app_handle: &tauri::AppHandle, file_name: &str) -> Resu
 	Ok(dir)
 }
 
+/// A P.IVA stored as a number in Excel loses its leading zero (calamine reads it as a float:
+/// "03136090796" -> "3136090796"). Italian P.IVA is always 11 digits, so left-pad all-digit values
+/// back to 11. Alphanumeric codici fiscali aren't all digits, so they're left untouched.
+const VAT_DIGITS: usize = 11;
+pub fn restore_vat_leading_zeros(vat: &str) -> String {
+	if vat.len() < VAT_DIGITS && vat.bytes().all(|b| b.is_ascii_digit()) {
+		format!("{vat:0>VAT_DIGITS$}")
+	} else {
+		vat.to_string()
+	}
+}
+
 pub fn parse_i64(value: &str, row_number: usize, field_name: &str) -> Result<i64, AppError> {
 	if let Ok(parsed) = value.parse::<i64>() {
 		return Ok(parsed);

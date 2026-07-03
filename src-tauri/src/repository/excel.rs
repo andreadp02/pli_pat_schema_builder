@@ -17,6 +17,9 @@ pub struct TemplateCell {
 #[derive(Debug, Clone)]
 pub enum CellValue {
     Text(String),
+    /// Like Text, but forced to an Excel string cell so numeric-looking values (a P.IVA with a
+    /// leading zero) aren't coerced to a number that drops the zero.
+    Str(String),
     Date { year: i32, month: i32, day: i32 },
 }
 
@@ -81,10 +84,14 @@ pub async fn fill_template(
         for col in 1..=max_col {
             let (style, proto) = match sheet.get_cell((col, start_row)) {
                 Some(cell) => {
-                    let proto = if cell.get_formula().is_empty() {
-                        ProtoCell::Value(cell.get_value().to_string())
-                    } else {
+                    let proto = if !cell.get_formula().is_empty() {
                         ProtoCell::Formula(cell.get_formula().to_string())
+                    } else if cell.get_data_type() == "s" {
+                        // Preserve string constants (e.g. the company P.IVA in col B/A, a leading-zero
+                        // number stored as text) so cloning down doesn't coerce them back to a number.
+                        ProtoCell::Str(cell.get_value().to_string())
+                    } else {
+                        ProtoCell::Value(cell.get_value().to_string())
                     };
                     (cell.get_style().clone(), proto)
                 }
@@ -106,6 +113,9 @@ pub async fn fill_template(
                     ProtoCell::Value(value) => {
                         cell.set_value(value.clone());
                     }
+                    ProtoCell::Str(value) => {
+                        cell.set_value_string(value.clone());
+                    }
                 }
             }
 
@@ -114,6 +124,9 @@ pub async fn fill_template(
                 match &input.value {
                     CellValue::Text(value) => {
                         cell.set_value(value.clone());
+                    }
+                    CellValue::Str(value) => {
+                        cell.set_value_string(value.clone());
                     }
                     CellValue::Date { year, month, day } => {
                         let serial =
@@ -138,6 +151,7 @@ pub async fn fill_template(
 
 enum ProtoCell {
     Value(String),
+    Str(String),
     Formula(String),
 }
 

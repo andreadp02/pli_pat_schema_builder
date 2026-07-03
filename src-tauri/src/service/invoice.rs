@@ -2,6 +2,7 @@ use std::path::Path;
 
 use crate::repository::excel as excel_repository;
 use crate::service::excel::ExcelRow;
+use crate::utils::restore_vat_leading_zeros;
 use crate::AppError;
 
 /// One excise line of an invoice (only lines with a value in the `Accise` column are kept).
@@ -46,10 +47,7 @@ fn parse_invoice_rows(rows: &[ExcelRow]) -> Result<Invoice, AppError> {
     })?;
 
     let fiscal_code = value_right_of_label(rows, &["cod.fisc"]).unwrap_or_default();
-    let vat = value_right_of_label(rows, &["p.iva"])
-        .unwrap_or_default()
-        .trim_start_matches('0')
-        .to_string();
+    let vat = restore_vat_leading_zeros(&value_right_of_label(rows, &["p.iva"]).unwrap_or_default());
 
     let lines = parse_lines(rows)?;
 
@@ -201,7 +199,7 @@ mod tests {
         assert_eq!(invoice.number, 784); // leading zeros stripped
         assert_eq!(invoice.date, (2026, 4, 15));
         assert_eq!(invoice.fiscal_code, "CRSGLM78T08L063J");
-        assert_eq!(invoice.vat, "2910280805"); // leading zero stripped
+        assert_eq!(invoice.vat, "02910280805"); // leading zero kept as-is
         assert_eq!(invoice.lines.len(), 1);
         assert_eq!(invoice.lines[0].code, "PLN013970");
         assert_eq!(invoice.lines[0].quantity, 4);

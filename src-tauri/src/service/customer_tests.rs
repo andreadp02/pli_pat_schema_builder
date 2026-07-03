@@ -34,3 +34,14 @@ fn out_of_enum_typology_is_reported_not_passed_to_insert() {
     assert_eq!(invalid.len(), 1);
     assert!(invalid[0].message.contains("typology"));
 }
+
+#[test]
+fn numeric_vat_leading_zeros_restored_to_11_digits() {
+    // calamine reads a number-stored P.IVA as a float, dropping leading zeros
+    assert_eq!(restore_vat_leading_zeros("3136090796"), "03136090796");
+    assert_eq!(restore_vat_leading_zeros("3861020794"), "03861020794");
+    // already 11 digits: untouched
+    assert_eq!(restore_vat_leading_zeros("05384590872"), "05384590872");
+    // alphanumeric codice fiscale: untouched
+    assert_eq!(restore_vat_leading_zeros("FZZJCP95L05I537S"), "FZZJCP95L05I537S");
+}
