@@ -132,8 +132,8 @@ pub async fn delete_customer(db_path: PathBuf, id: i64) -> Result<bool, AppError
         .map_err(|e| AppError::Processing(format!("Delete customer task failed: {e}")))?
 }
 
-pub async fn create_customers_bulk(db_path: PathBuf, inputs: Vec<NewCustomer>) -> Result<usize, AppError> {
-    tauri::async_runtime::spawn_blocking(move || create_customers_bulk_sync(db_path.as_path(), inputs))
+pub async fn replace_all_customers(db_path: PathBuf, inputs: Vec<NewCustomer>) -> Result<usize, AppError> {
+    tauri::async_runtime::spawn_blocking(move || replace_all_customers_sync(db_path.as_path(), inputs))
         .await
         .map_err(|e| AppError::Processing(format!("Bulk create customer task failed: {e}")))?
 }
@@ -474,7 +474,7 @@ fn delete_customer_sync(db_path: &Path, id: i64) -> Result<bool, AppError> {
     Ok(rows_affected > 0)
 }
 
-fn create_customers_bulk_sync(db_path: &Path, inputs: Vec<NewCustomer>) -> Result<usize, AppError> {
+fn replace_all_customers_sync(db_path: &Path, inputs: Vec<NewCustomer>) -> Result<usize, AppError> {
     if inputs.is_empty() {
         return Ok(0);
     }
@@ -482,6 +482,10 @@ fn create_customers_bulk_sync(db_path: &Path, inputs: Vec<NewCustomer>) -> Resul
     let mut conn = open_connection(db_path)?;
     let tx = conn
         .transaction()
+        .map_err(|e| AppError::Processing(e.to_string()))?;
+
+    // ponytail: Excel is the source of truth — table wiped first, so the ON CONFLICT below never fires (left as harmless dead logic).
+    tx.execute("DELETE FROM customer", [])
         .map_err(|e| AppError::Processing(e.to_string()))?;
 
     let mut total_affected = 0;
