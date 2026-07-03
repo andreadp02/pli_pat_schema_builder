@@ -138,7 +138,14 @@ const en = {
 	'templates.notLoaded': 'Not loaded',
 	'templates.replace': 'Replace',
 	'templates.upload': 'Upload',
-	'templates.saved': '{kind} template saved.'
+	'templates.saved': '{kind} template saved.',
+	'templates.accisaTitle': 'Excise coefficients',
+	'templates.accisaIntro':
+		'Rates used in the accisa formulas of the generated records. Update them when ADM changes the excise.',
+	'templates.accisaPliPln': 'PLI without nicotine (PLN)',
+	'templates.accisaPliPl': 'PLI with nicotine',
+	'templates.accisaPat': 'PAT',
+	'templates.accisaSaved': 'Coefficients saved.'
 } as const;
 
 const it: Record<keyof typeof en, string> = {
@@ -274,7 +281,14 @@ const it: Record<keyof typeof en, string> = {
 	'templates.notLoaded': 'Non caricato',
 	'templates.replace': 'Sostituisci',
 	'templates.upload': 'Carica',
-	'templates.saved': 'Modello {kind} salvato.'
+	'templates.saved': 'Modello {kind} salvato.',
+	'templates.accisaTitle': 'Coefficienti accisa',
+	'templates.accisaIntro':
+		"Aliquote usate nelle formule dell'accisa dei tracciati generati. Aggiornale quando l'ADM cambia l'accisa.",
+	'templates.accisaPliPln': 'PLI senza nicotina (PLN)',
+	'templates.accisaPliPl': 'PLI con nicotina',
+	'templates.accisaPat': 'PAT',
+	'templates.accisaSaved': 'Coefficienti salvati.'
 };
 
 const messages: Record<Locale, Record<keyof typeof en, string>> = { en, it };

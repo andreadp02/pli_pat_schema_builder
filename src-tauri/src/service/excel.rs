@@ -6,6 +6,7 @@ use crate::repository::customer::{self as customer_repository, Customer};
 use crate::repository::excel::{self as excel_repository, CellValue, TemplateCell};
 use crate::repository::product::{self as product_repository, Product, ProductType};
 use crate::service::invoice::{self, Invoice, InvoiceLine};
+use crate::service::settings::{self, AccisaCoefficients};
 use crate::AppError;
 
 /// Represents a single row from an Excel sheet.
@@ -52,6 +53,9 @@ pub async fn generate_tracciati(
     let (year, month, day) = parse_fortnight_end(&fortnight_end)?;
     let pli_period = format!("{month:02}/{year:04}");
     let (period_start, period_end) = fortnight_range(year, month, day);
+
+    // Excise coefficients embedded into the accisa formulas (user-editable in the Template page).
+    let coeffs = settings::get_accisa_coefficients(db_path).await?;
 
     let mut pli_rows: Vec<Vec<TemplateCell>> = Vec::new();
     let mut pat_rows: Vec<Vec<TemplateCell>> = Vec::new();
@@ -114,11 +118,11 @@ pub async fn generate_tracciati(
             }
 
             match product.product_type {
-                ProductType::Pli => {
-                    inv_pli.push(build_pli_row(&customer, &product, &invoice, line, &pli_period))
-                }
+                ProductType::Pli => inv_pli.push(build_pli_row(
+                    &customer, &product, &invoice, line, &pli_period, &coeffs,
+                )),
                 ProductType::Pat => inv_pat.push(build_pat_row(
-                    &customer, &product, &invoice, line, year, month, day,
+                    &customer, &product, &invoice, line, (year, month, day), &coeffs,
                 )),
             }
         }
@@ -188,6 +192,25 @@ fn date_cell(column: u32, year: i32, month: i32, day: i32) -> TemplateCell {
     }
 }
 
+/// An Excel formula cell; row references are written against the sheet's data start row and bumped
+/// per output row on write (see `repository::excel::fill_template`).
+fn formula_cell(column: u32, formula: impl Into<String>) -> TemplateCell {
+    TemplateCell {
+        column,
+        value: CellValue::Formula(formula.into()),
+    }
+}
+
+/// The PLI excise coefficient: zero-nicotine liquids (code `PLN…`) use their own rate, everything
+/// else the standard PLI rate.
+fn pli_accisa_coeff(code: &str, coeffs: &AccisaCoefficients) -> f64 {
+    if code.starts_with("PLN") {
+        coeffs.pli_pln
+    } else {
+        coeffs.pli_pl
+    }
+}
+
 /// Parses the fortnight end the frontend sends as an ISO date ("YYYY-MM-DD").
 fn parse_fortnight_end(iso: &str) -> Result<(i32, i32, i32), AppError> {
     let parts: Vec<&str> = iso.split('-').collect();
@@ -216,6 +239,7 @@ fn build_pli_row(
     invoice: &Invoice,
     line: &InvoiceLine,
     pli_period: &str,
+    coeffs: &AccisaCoefficients,
 ) -> Vec<TemplateCell> {
     let tax_code = customer.tax_code.to_string();
     // Rivendita → CMNR (F); otherwise the esercizio-vicinato number (E).
@@ -246,7 +270,13 @@ fn build_pli_row(
         cell(15, confezioni.to_string()),                         // O Numero di confezioni (B)
         // P Quantità totale (Litri) = template formula
         cell(17, invoice.number.to_string()),                     // Q N. Fattura (working)
-        // R Accisa = template formula O*(M*0.124672) — left untouched so Excel computes it.
+        formula_cell(                                             // R Accisa = O*(M*coefficiente)
+            18,
+            format!(
+                "O{PLI_START_ROW}*(M{PLI_START_ROW}*{})",
+                pli_accisa_coeff(&product.code, coeffs)
+            ),
+        ),
     ]
 }
 
@@ -255,9 +285,8 @@ fn build_pat_row(
     product: &Product,
     invoice: &Invoice,
     line: &InvoiceLine,
-    year: i32,
-    month: i32,
-    day: i32,
+    (year, month, day): (i32, i32, i32),
+    coeffs: &AccisaCoefficients,
 ) -> Vec<TemplateCell> {
     let cmnr = if customer.typology == RIVENDITA {
         customer.tax_code.to_string()
@@ -281,7 +310,7 @@ fn build_pat_row(
         // P N° totale pezzi (C=A*B) = template formula
         cell(17, product.code.clone()),                           // Q codice (working)
         cell(18, invoice.number.to_string()),                     // R N. Fattura (working)
-        // S Accisa = Excel formula — left untouched so Excel computes it.
+        formula_cell(19, format!("{}*P{PAT_START_ROW}", coeffs.pat)), // S Accisa = coefficiente*P
     ]
 }
 
@@ -303,5 +332,13 @@ mod tests {
         let (start, _) = fortnight_range(2026, 6, 30);
         assert_eq!(start, (2026, 6, 16));
         assert!((2026, 6, 15) < start); // first fortnight out
+    }
+
+    #[test]
+    fn pli_accisa_coeff_splits_on_pln_prefix() {
+        let coeffs = AccisaCoefficients { pli_pln: 0.05, pli_pl: 0.124672, pat: 0.0036 };
+        // Zero-nicotine (PLN…) → its own rate; everything else → standard PLI rate.
+        assert_eq!(pli_accisa_coeff("PLN0012162", &coeffs), 0.05);
+        assert_eq!(pli_accisa_coeff("PL0012162D", &coeffs), 0.124672);
     }
 }

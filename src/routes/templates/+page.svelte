@@ -6,11 +6,16 @@
 		type TemplateKind,
 		type TemplatesStatus
 	} from '$lib/template-repository';
+	import {
+		getAccisaCoefficients,
+		saveAccisaCoefficients,
+		type AccisaCoefficients
+	} from '$lib/settings-repository';
 	import { notices } from '$lib/notifications.svelte';
 	import { t } from '$lib/i18n.svelte';
 	import Notice from '$lib/Notice.svelte';
 	import Spinner from '$lib/Spinner.svelte';
-	import { btnPrimary } from '$lib/ui';
+	import { btnPrimary, inputBase } from '$lib/ui';
 
 	const n = notices.templates;
 
@@ -23,6 +28,16 @@
 	let loading = $state(false);
 	let saving = $state(false);
 	let uploadingKind = $state<TemplateKind | null>(null);
+
+	let coefficients = $state<AccisaCoefficients>({ pliPln: 0, pliPl: 0, pat: 0 });
+	let loadingCoefficients = $state(false);
+	let savingCoefficients = $state(false);
+
+	const ACCISA_FIELDS: { key: keyof AccisaCoefficients; labelKey: 'templates.accisaPliPln' | 'templates.accisaPliPl' | 'templates.accisaPat' }[] = [
+		{ key: 'pliPln', labelKey: 'templates.accisaPliPln' },
+		{ key: 'pliPl', labelKey: 'templates.accisaPliPl' },
+		{ key: 'pat', labelKey: 'templates.accisaPat' }
+	];
 
 	async function loadStatus(): Promise<void> {
 		loading = true;
@@ -63,8 +78,34 @@
 		}
 	}
 
+	async function loadCoefficients(): Promise<void> {
+		loadingCoefficients = true;
+		try {
+			coefficients = await getAccisaCoefficients();
+		} catch (err) {
+			n.error = String(err);
+		} finally {
+			loadingCoefficients = false;
+		}
+	}
+
+	async function onSaveCoefficients(): Promise<void> {
+		n.error = null;
+		n.success = null;
+		savingCoefficients = true;
+		try {
+			await saveAccisaCoefficients(coefficients);
+			n.success = t('templates.accisaSaved');
+		} catch (err) {
+			n.error = String(err);
+		} finally {
+			savingCoefficients = false;
+		}
+	}
+
 	$effect(() => {
 		loadStatus();
+		loadCoefficients();
 	});
 </script>
 
@@ -110,5 +151,38 @@
 				</div>
 			{/each}
 		</div>
+
+		<section class="mt-8 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+			<h2 class="font-semibold text-slate-900">{t('templates.accisaTitle')}</h2>
+			<p class="mt-1 max-w-prose text-sm text-slate-600">{t('templates.accisaIntro')}</p>
+
+			<div class="mt-4 grid gap-4 sm:grid-cols-3">
+				{#each ACCISA_FIELDS as field (field.key)}
+					<label class="flex flex-col gap-1">
+						<span class="text-sm font-medium text-slate-700">{t(field.labelKey)}</span>
+						<input
+							type="number"
+							step="any"
+							min="0"
+							class="{inputBase} w-full"
+							bind:value={coefficients[field.key]}
+							disabled={loadingCoefficients || savingCoefficients}
+						/>
+					</label>
+				{/each}
+			</div>
+
+			<div class="mt-4 flex justify-end">
+				<button
+					type="button"
+					onclick={onSaveCoefficients}
+					class={btnPrimary}
+					disabled={loadingCoefficients || savingCoefficients}
+				>
+					{#if savingCoefficients}<Spinner class="h-4 w-4" />{/if}
+					{t('common.save')}
+				</button>
+			</div>
+		</section>
 	</main>
 </div>

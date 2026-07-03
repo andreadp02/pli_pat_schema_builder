@@ -3,3 +3,4 @@
 export * from './product-repository';
 export * from './customer-repository';
 export * from './template-repository';
+export * from './settings-repository';

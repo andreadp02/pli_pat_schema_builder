@@ -21,6 +21,9 @@ pub enum CellValue {
     /// leading zero) aren't coerced to a number that drops the zero.
     Str(String),
     Date { year: i32, month: i32, day: i32 },
+    /// An Excel formula whose row references are written against `start_row` (e.g. "O6*(M6*0.1)");
+    /// they're bumped to each target row on write, like a cloned prototype formula.
+    Formula(String),
 }
 
 /// Reads all rows from the first sheet of an Excel (.xlsx) file.
@@ -136,6 +139,9 @@ pub async fn fill_template(
                             .get_number_format_mut()
                             .set_format_code("dd/mm/yyyy");
                     }
+                    CellValue::Formula(formula) => {
+                        cell.set_formula(bump_formula_rows(formula, start_row, target_row));
+                    }
                 }
             }
         }
@@ -196,5 +202,44 @@ fn bump_formula_rows(formula: &str, from_row: u32, to_row: u32) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bumps_accisa_formula_refs_to_target_row() {
+        // The per-row accisa formulas (written against the data start row) bump every same-row ref.
+        assert_eq!(bump_formula_rows("O6*(M6*0.124672)", 6, 8), "O8*(M8*0.124672)");
+        assert_eq!(bump_formula_rows("0.0036*P2", 2, 5), "0.0036*P5");
+        // Same row → unchanged; the bare coefficient digits are not touched.
+        assert_eq!(bump_formula_rows("0.0036*P2", 2, 2), "0.0036*P2");
+    }
+
+    #[test]
+    fn fill_template_overrides_prototype_with_per_row_formula() {
+        let dir = std::env::temp_dir();
+        let template = dir.join("accisa_verify_tpl.xlsx");
+        let output = dir.join("accisa_verify_out.xlsx");
+
+        // Template with a prototype accisa formula at the data start row (col 19, row 2).
+        let mut book = umya_spreadsheet::new_file();
+        let sheet = book.get_sheet_mut(&0).unwrap();
+        sheet.set_name("S");
+        sheet.get_cell_mut((19, 2)).set_formula("0.0036*P2");
+        umya_spreadsheet::writer::xlsx::write(&book, &template).unwrap();
+
+        let rows = vec![
+            vec![TemplateCell { column: 19, value: CellValue::Formula("0.0036*P2".to_string()) }],
+            vec![TemplateCell { column: 19, value: CellValue::Formula("0.0036*P2".to_string()) }],
+        ];
+        tauri::async_runtime::block_on(fill_template(&template, &output, "S", 2, rows)).unwrap();
+
+        let result = umya_spreadsheet::reader::xlsx::read(&output).unwrap();
+        let sheet = result.get_sheet_by_name("S").unwrap();
+        assert_eq!(sheet.get_cell((19, 2)).unwrap().get_formula(), "0.0036*P2");
+        assert_eq!(sheet.get_cell((19, 3)).unwrap().get_formula(), "0.0036*P3");
+    }
 }
 

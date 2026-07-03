@@ -11,6 +11,7 @@ use std::process::Command;
 use rusqlite::Connection;
 use thiserror::Error;
 
+use crate::service::settings::{KEY_ACCISA_PAT, KEY_ACCISA_PLI_PL, KEY_ACCISA_PLI_PLN};
 use crate::utils::{resolve_db_path};
 
 #[derive(Debug, Error)]
@@ -74,6 +75,7 @@ pub fn run() {
 
             ensure_product_table_on_startup(app.handle())?;
             ensure_customer_tables_on_startup(app.handle())?;
+            ensure_settings_table_on_startup(app.handle())?;
 
             #[cfg(target_os = "windows")]
             if let Err(err) = hide_database_file_on_windows(app.handle()) {
@@ -93,6 +95,8 @@ pub fn run() {
             controller::tracciati::generate_tracciati,
             controller::template::save_template,
             controller::template::get_templates_status,
+            controller::settings::get_accisa_coefficients,
+            controller::settings::save_accisa_coefficients,
             controller::product::create_product,
             controller::product::get_products,
             controller::product::get_product_by_id,
@@ -218,6 +222,33 @@ fn ensure_customer_tables_on_startup(app: &tauri::AppHandle) -> Result<(), Strin
         [],
     )
     .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+/// Generic key/value settings table. Seeds the accisa coefficients with the current known rates so
+/// generation works before the user edits them; `INSERT OR IGNORE` leaves any user edits untouched.
+fn ensure_settings_table_on_startup(app: &tauri::AppHandle) -> Result<(), String> {
+    let db_path = resolve_db_path(app)?;
+
+    let conn = Connection::open(db_path).map_err(|e| e.to_string())?;
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+        [],
+    )
+    .map_err(|e| e.to_string())?;
+
+    for (key, value) in [
+        (KEY_ACCISA_PLI_PLN, "0.124672"),
+        (KEY_ACCISA_PLI_PL, "0.124672"),
+        (KEY_ACCISA_PAT, "0.0036"),
+    ] {
+        conn.execute(
+            "INSERT OR IGNORE INTO settings (key, value) VALUES (?1, ?2)",
+            rusqlite::params![key, value],
+        )
+        .map_err(|e| e.to_string())?;
+    }
 
     Ok(())
 }
