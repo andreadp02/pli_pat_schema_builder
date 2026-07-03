@@ -42,7 +42,7 @@
 </svelte:head>
 
 
-<div class="flex h-screen flex-col overflow-hidden bg-gray-50">
+<div class="flex h-screen flex-col overflow-hidden bg-slate-50">
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 	<header
@@ -57,7 +57,7 @@
 			<a
 				href="/"
 				data-no-window-drag
-				class={`rounded px-2.5 py-1 text-xs font-semibold tracking-wide transition-colors ${page.url.pathname === '/'
+				class={`rounded px-2.5 py-1 text-xs font-semibold tracking-wide transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 motion-reduce:transition-none ${page.url.pathname === '/'
 					? 'bg-slate-900 text-white'
 					: 'text-slate-700 hover:bg-slate-100'}`}
 			>
@@ -66,7 +66,7 @@
 			<a
 				href="/products"
 				data-no-window-drag
-				class={`rounded px-2.5 py-1 text-xs font-semibold tracking-wide transition-colors ${page.url.pathname.startsWith('/products')
+				class={`rounded px-2.5 py-1 text-xs font-semibold tracking-wide transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 motion-reduce:transition-none ${page.url.pathname.startsWith('/products')
 					? 'bg-slate-900 text-white'
 					: 'text-slate-700 hover:bg-slate-100'}`}
 			>
@@ -75,7 +75,7 @@
 			<a
 				href="/customers"
 				data-no-window-drag
-				class={`rounded px-2.5 py-1 text-xs font-semibold tracking-wide transition-colors ${page.url.pathname.startsWith('/customers')
+				class={`rounded px-2.5 py-1 text-xs font-semibold tracking-wide transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 motion-reduce:transition-none ${page.url.pathname.startsWith('/customers')
 					? 'bg-slate-900 text-white'
 					: 'text-slate-700 hover:bg-slate-100'}`}
 			>
@@ -84,7 +84,7 @@
 			<a
 				href="/templates"
 				data-no-window-drag
-				class={`rounded px-2.5 py-1 text-xs font-semibold tracking-wide transition-colors ${page.url.pathname.startsWith('/templates')
+				class={`rounded px-2.5 py-1 text-xs font-semibold tracking-wide transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 motion-reduce:transition-none ${page.url.pathname.startsWith('/templates')
 					? 'bg-slate-900 text-white'
 					: 'text-slate-700 hover:bg-slate-100'}`}
 			>
@@ -98,7 +98,7 @@
 			<button
 				type="button"
 				data-no-window-drag
-				class="grid w-10 place-items-center text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-200"
+				class="grid w-10 place-items-center text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-400 motion-reduce:transition-none"
 				onclick={() => setLocale(getLocale() === 'en' ? 'it' : 'en')}
 				aria-label={t('lang.switch')}
 			>
@@ -107,7 +107,7 @@
 			<button
 				type="button"
 				data-no-window-drag
-				class="grid w-12 place-items-center text-slate-700 transition-colors hover:bg-slate-200"
+				class="grid w-12 place-items-center text-slate-700 transition-colors hover:bg-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-400 motion-reduce:transition-none"
 				onclick={minimizeWindow}
 				aria-label={t('win.minimize')}
 			>
@@ -118,7 +118,7 @@
 			<button
 				type="button"
 				data-no-window-drag
-				class="grid w-12 place-items-center text-slate-700 transition-colors hover:bg-slate-200"
+				class="grid w-12 place-items-center text-slate-700 transition-colors hover:bg-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-400 motion-reduce:transition-none"
 				onclick={toggleMaximize}
 				aria-label={t('win.maximize')}
 			>
@@ -129,7 +129,7 @@
 			<button
 				type="button"
 				data-no-window-drag
-				class="grid w-12 place-items-center text-slate-700 transition-colors hover:bg-rose-600 hover:text-white"
+				class="grid w-12 place-items-center text-slate-700 transition-colors hover:bg-rose-600 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-rose-400 motion-reduce:transition-none"
 				onclick={closeWindow}
 				aria-label={t('win.close')}
 			>

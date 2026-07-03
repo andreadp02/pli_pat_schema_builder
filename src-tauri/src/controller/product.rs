@@ -27,6 +27,8 @@ pub async fn get_products(
     product_type_filter: Option<ProductType>,
     incomplete_only: Option<bool>,
     code_search: Option<String>,
+    sort_by: Option<String>,
+    sort_dir: Option<String>,
 ) -> Result<PaginatedProducts, String> {
     if page_size > MAX_PRODUCTS_PAGE_SIZE {
         return Err(format!("page_size cannot exceed {MAX_PRODUCTS_PAGE_SIZE}"));
@@ -42,6 +44,8 @@ pub async fn get_products(
         product_type_filter,
         incomplete_only.unwrap_or(false),
         code_search,
+        sort_by,
+        sort_dir,
     )
         .await
     .map_err(|e| e.to_string())

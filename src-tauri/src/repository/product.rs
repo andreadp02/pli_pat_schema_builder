@@ -102,6 +102,7 @@ pub struct PaginatedProducts {
     pub page: u32,
     pub page_size: u32,
     pub has_next_page: bool,
+    pub total_count: u32,
 }
 
 const PRODUCT_COLUMNS: &str =
@@ -123,6 +124,8 @@ pub async fn get_products(
     product_type_filter: Option<ProductType>,
     incomplete_only: bool,
     code_search: Option<String>,
+    sort_by: Option<String>,
+    sort_dir: Option<String>,
 ) -> Result<PaginatedProducts, AppError> {
     tauri::async_runtime::spawn_blocking(move || {
         get_products_sync(
@@ -132,6 +135,8 @@ pub async fn get_products(
             product_type_filter,
             incomplete_only,
             code_search.as_deref(),
+            sort_by.as_deref(),
+            sort_dir.as_deref(),
         )
     })
     .await
@@ -423,6 +428,27 @@ fn build_product_batch_insert_sql(row_count: usize) -> String {
     )
 }
 
+/// Maps a whitelisted frontend sort key to its real column; anything unknown falls back to `id`.
+/// The result is always a `&'static str`, so splicing it into a query with `format!` is injection-safe.
+fn sort_column(sort_by: Option<&str>) -> &'static str {
+    match sort_by {
+        Some("code") => "code",
+        Some("description") => "description",
+        Some("units") => "units",
+        Some("productType") => "product_type",
+        Some("admCode") => "adm_code",
+        _ => "id",
+    }
+}
+
+fn sort_direction(sort_dir: Option<&str>) -> &'static str {
+    if sort_dir == Some("asc") {
+        "ASC"
+    } else {
+        "DESC"
+    }
+}
+
 fn get_products_sync(
     db_path: &Path,
     page: u32,
@@ -430,18 +456,33 @@ fn get_products_sync(
     product_type_filter: Option<ProductType>,
     incomplete_only: bool,
     code_search: Option<&str>,
+    sort_by: Option<&str>,
+    sort_dir: Option<&str>,
 ) -> Result<PaginatedProducts, AppError> {
     let offset = (page.saturating_sub(1) as u64) * (page_size as u64);
 
-    let (query, params_values) = build_products_query(
-        product_type_filter,
-        incomplete_only,
-        code_search,
-        page_size,
-        offset,
-    );
+    let (where_sql, where_params) =
+        build_products_where(product_type_filter, incomplete_only, code_search);
 
     let conn = Connection::open(db_path).map_err(|e| AppError::Io(e.to_string()))?;
+
+    let total_count: u32 = conn
+        .query_row(
+            &format!("SELECT COUNT(*) FROM product{where_sql}"),
+            params_from_iter(where_params.clone()),
+            |row| row.get(0),
+        )
+        .map_err(|e| AppError::Processing(e.to_string()))?;
+
+    let sort_col = sort_column(sort_by);
+    let dir = sort_direction(sort_dir);
+    let query = format!(
+        "SELECT {PRODUCT_COLUMNS} FROM product{where_sql} ORDER BY {sort_col} {dir}, id DESC LIMIT ? OFFSET ?"
+    );
+    let mut params_values = where_params;
+    params_values.push(Value::from(i64::from(page_size + 1)));
+    params_values.push(Value::from(offset as i64));
+
     let mut stmt = conn
         .prepare(&query)
         .map_err(|e| AppError::Processing(e.to_string()))?;
@@ -462,17 +503,18 @@ fn get_products_sync(
         page,
         page_size,
         has_next_page,
+        total_count,
     })
 }
 
-fn build_products_query(
+/// Builds the shared `WHERE ...` clause (empty string if no filters) plus its bound params, reused
+/// by both the COUNT query and the page query so the two never drift apart.
+fn build_products_where(
     product_type_filter: Option<ProductType>,
     incomplete_only: bool,
     code_search: Option<&str>,
-    page_size: u32,
-    offset: u64,
 ) -> (String, Vec<Value>) {
-    let mut params_values: Vec<Value> = Vec::with_capacity(4);
+    let mut params_values: Vec<Value> = Vec::with_capacity(3);
     let mut conditions: Vec<&str> = Vec::new();
 
     if let Some(product_type) = product_type_filter {
@@ -492,16 +534,11 @@ fn build_products_query(
         );
     }
 
-    let mut query = format!("SELECT {PRODUCT_COLUMNS} FROM product");
-    if !conditions.is_empty() {
-        query.push_str(" WHERE ");
-        query.push_str(&conditions.join(" AND "));
+    if conditions.is_empty() {
+        (String::new(), params_values)
+    } else {
+        (format!(" WHERE {}", conditions.join(" AND ")), params_values)
     }
-    query.push_str(" ORDER BY id DESC LIMIT ? OFFSET ?");
-    params_values.push(Value::from(i64::from(page_size + 1)));
-    params_values.push(Value::from(offset as i64));
-
-    (query, params_values)
 }
 
 fn get_product_by_code_sync(
@@ -920,6 +957,30 @@ mod tests {
         .unwrap();
         let pli = get_product_by_code_sync(&db, "p1", None).unwrap().unwrap();
         assert_eq!((pli.units, pli.adm_code.as_deref()), (9, Some("D00009999")));
+
+        std::fs::remove_file(&db).ok();
+    }
+
+    #[test]
+    fn get_products_sorts_by_whitelisted_column_and_reports_total_count() {
+        let db = temp_db();
+        create_product_sync(&db, new(ProductType::Pli, "b", None, None, None)).unwrap();
+        create_product_sync(&db, new(ProductType::Pli, "a", None, None, None)).unwrap();
+        create_product_sync(&db, new(ProductType::Pli, "c", None, None, None)).unwrap();
+
+        let asc = get_products_sync(&db, 1, 10, None, false, None, Some("code"), Some("asc")).unwrap();
+        assert_eq!(
+            asc.items.iter().map(|p| p.code.as_str()).collect::<Vec<_>>(),
+            vec!["A", "B", "C"]
+        );
+        assert_eq!(asc.total_count, 3);
+
+        // An unknown sort key must not be interpolated into the query; it falls back to `id DESC`.
+        let unknown = get_products_sync(&db, 1, 10, None, false, None, Some("'; DROP TABLE product; --"), None).unwrap();
+        assert_eq!(
+            unknown.items.iter().map(|p| p.code.as_str()).collect::<Vec<_>>(),
+            vec!["C", "A", "B"]
+        );
 
         std::fs::remove_file(&db).ok();
     }

@@ -24,21 +24,34 @@
 	const appVersion = packageJson.version;
 	const n = notices.home;
 	const fortnights = fortnightOptions();
+	// The fortnight date ships pre-filled with this default. A tick means "the user acted",
+	// so step 2 only counts as done once the value differs from the default — never on the
+	// default itself. reset() restores this exact value, clearing the tick automatically.
+	const defaultFortnightValue = defaultFortnight(fortnights);
 
 	let state = $state<PageState>({
 		selectedFiles: [],
 		outputDir: null,
-		fortnightEnd: defaultFortnight(fortnights),
+		fortnightEnd: defaultFortnightValue,
 		processing: false,
 		result: null,
 		errorMsg: null
 	});
 
 	const step1Done = $derived(state.selectedFiles.length > 0);
-	const step2Done = $derived(!!state.fortnightEnd);
+	const fortnightValid = $derived(!!state.fortnightEnd);
+	const step2Done = $derived(fortnightValid && state.fortnightEnd !== defaultFortnightValue);
 	const step3Done = $derived(!!state.outputDir);
-	const canGenerate = $derived(step1Done && step2Done && step3Done && !state.processing);
-	const currentStep = $derived(!step1Done ? 1 : !step2Done ? 2 : !step3Done ? 3 : 4);
+	const step4Done = $derived(!!state.result);
+	const canGenerate = $derived(step1Done && fortnightValid && step3Done && !state.processing);
+	const currentStep = $derived(!step1Done ? 1 : !fortnightValid ? 2 : !step3Done ? 3 : 4);
+
+	const rail = $derived([
+		{ num: 1, label: t('home.short1'), done: step1Done },
+		{ num: 2, label: t('home.short2'), done: step2Done },
+		{ num: 3, label: t('home.short3'), done: step3Done },
+		{ num: 4, label: t('home.short4'), done: step4Done }
+	]);
 
 	onMount(() => {
 		const savedDir = window.localStorage.getItem('defaultOutputDir');
@@ -99,19 +112,11 @@
 	</span>
 {/snippet}
 
-{#snippet step(num: number, title: string, done: boolean, current: boolean, last: boolean, body: Snippet)}
-	<div class="flex gap-4 sm:gap-5">
-		<div class="flex flex-col items-center">
-			{@render badge(num, done, current)}
-			{#if !last}
-				<div class={`mt-1.5 w-px flex-1 transition-colors duration-200 motion-reduce:transition-none ${done ? 'bg-emerald-400' : 'bg-slate-200'}`}></div>
-			{/if}
-		</div>
-		<div class={`min-w-0 flex-1 ${last ? '' : 'pb-8'}`}>
-			<h2 class="mb-3 text-sm font-semibold tracking-tight text-slate-900">{title}</h2>
-			{@render body()}
-		</div>
-	</div>
+{#snippet stepBlock(title: string, body: Snippet)}
+	<section>
+		<h2 class="mb-3 text-sm font-semibold tracking-tight text-slate-900">{title}</h2>
+		{@render body()}
+	</section>
 {/snippet}
 
 <div class="flex h-full flex-col bg-slate-50">
@@ -121,10 +126,28 @@
 			<p class="mt-1 max-w-prose text-sm text-slate-500">{t('home.pageSubtitle')}</p>
 		</header>
 
-		{@render step(1, t('home.step1'), step1Done, currentStep === 1, false, step1Body)}
-		{@render step(2, t('home.step2'), false, false, false, step2Body)}
-		{@render step(3, t('home.step3'), step3Done, currentStep === 3, false, step3Body)}
-		{@render step(4, t('home.step4'), !!state.result, currentStep === 4, true, step4Body)}
+		<nav aria-label={t('home.progress')} class="mb-10">
+			<ol class="flex items-start">
+				{#each rail as s, i (s.num)}
+					<li class="flex flex-col items-center gap-2">
+						{@render badge(s.num, s.done, currentStep === s.num)}
+						<span class={`text-xs font-medium ${s.done ? 'text-slate-700' : currentStep === s.num ? 'text-slate-900' : 'text-slate-400'}`}>
+							{s.label}
+						</span>
+					</li>
+					{#if i < rail.length - 1}
+						<li aria-hidden="true" class={`mt-4 h-0.5 flex-1 rounded-full transition-colors duration-200 motion-reduce:transition-none ${s.done ? 'bg-emerald-400' : 'bg-slate-200'}`}></li>
+					{/if}
+				{/each}
+			</ol>
+		</nav>
+
+		<div class="space-y-8">
+			{@render stepBlock(t('home.step1'), step1Body)}
+			{@render stepBlock(t('home.step2'), step2Body)}
+			{@render stepBlock(t('home.step3'), step3Body)}
+			{@render stepBlock(t('home.step4'), step4Body)}
+		</div>
 	</main>
 
 	<footer class="py-4 text-center text-xs text-slate-500">PLI PAT Schema Builder &middot; v{appVersion}</footer>
@@ -160,14 +183,17 @@
 {/snippet}
 
 {#snippet step2Body()}
-	<select
+	<input
+		type="date"
 		bind:value={state.fortnightEnd}
+		list="fortnight-options"
 		class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm transition-colors hover:border-slate-400 focus:border-slate-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
-	>
+	/>
+	<datalist id="fortnight-options">
 		{#each fortnights as f}
-			<option value={f.value}>{f.label}</option>
+			<option value={f.value} label={f.label}></option>
 		{/each}
-	</select>
+	</datalist>
 	<p class="mt-2 text-xs text-slate-500">{t('home.fortnightHint')}</p>
 {/snippet}
 
@@ -187,8 +213,9 @@
 				onclick={() => openOutput(state.outputDir ?? '', deps)}
 				title={t('home.openTitle', { path: state.outputDir })}
 				aria-label={t('home.openTitle', { path: state.outputDir })}
-				class="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400"
+				class="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 motion-reduce:transition-none"
 			>
+				<svg viewBox="0 0 20 20" class="size-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4h5v5" /><path d="M16 4l-7 7" /><path d="M8 5H5a1 1 0 00-1 1v9a1 1 0 001 1h9a1 1 0 001-1v-3" /></svg>
 				{t('home.open')}
 			</button>
 		</div>
@@ -229,7 +256,10 @@
 				>
 					<span class="w-28 shrink-0 font-medium text-slate-700">{file.label}</span>
 					<span class="flex-1 truncate font-mono text-xs text-slate-600">{shortenPath(file.path)}</span>
-					<span class="shrink-0 text-xs font-medium text-emerald-700">{t('home.open')}</span>
+					<span class="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-emerald-700">
+						<svg viewBox="0 0 20 20" class="size-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4h5v5" /><path d="M16 4l-7 7" /><path d="M8 5H5a1 1 0 00-1 1v9a1 1 0 001 1h9a1 1 0 001-1v-3" /></svg>
+						{t('home.open')}
+					</span>
 				</button>
 			{/each}
 		</div>

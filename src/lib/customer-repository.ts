@@ -42,6 +42,7 @@ export type PaginatedCustomers = {
 	page: number;
 	pageSize: number;
 	hasNextPage: boolean;
+	totalCount: number;
 };
 
 export type InvalidUploadRow = {

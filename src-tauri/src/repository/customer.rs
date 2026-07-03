@@ -58,6 +58,7 @@ pub struct PaginatedCustomers {
     pub page: u32,
     pub page_size: u32,
     pub has_next_page: bool,
+    pub total_count: u32,
 }
 
 pub async fn create_customer(db_path: PathBuf, input: NewCustomer) -> Result<i64, AppError> {
@@ -258,12 +259,6 @@ fn get_customers_sync(
     let offset = (page.saturating_sub(1) as u64) * (page_size as u64);
     let conn = open_connection(db_path)?;
 
-    let mut query = String::from(
-        "SELECT c.id, c.tax_code, c.ordinal_number, c.typology, c.vat_number, c.address,
-                m.id, m.name, m.province_name
-         FROM customer c
-         JOIN municipality m ON m.id = c.municipality_id",
-    );
     let mut params_values: Vec<Value> = Vec::new();
     let mut conditions: Vec<&str> = Vec::new();
 
@@ -282,11 +277,28 @@ fn get_customers_sync(
         params_values.push(Value::from(format!("%{term}%")));
     }
 
-    if !conditions.is_empty() {
-        query.push_str(" WHERE ");
-        query.push_str(&conditions.join(" AND "));
-    }
+    let where_sql = if conditions.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", conditions.join(" AND "))
+    };
 
+    let total_count: u32 = conn
+        .query_row(
+            &format!(
+                "SELECT COUNT(*) FROM customer c JOIN municipality m ON m.id = c.municipality_id{where_sql}"
+            ),
+            params_from_iter(params_values.clone()),
+            |row| row.get(0),
+        )
+        .map_err(|e| AppError::Processing(e.to_string()))?;
+
+    let mut query = format!(
+        "SELECT c.id, c.tax_code, c.ordinal_number, c.typology, c.vat_number, c.address,
+                m.id, m.name, m.province_name
+         FROM customer c
+         JOIN municipality m ON m.id = c.municipality_id{where_sql}"
+    );
     query.push_str(" ORDER BY c.id DESC LIMIT ? OFFSET ?");
     params_values.push(Value::from(i64::from(page_size.saturating_add(1))));
     params_values.push(Value::from(offset as i64));
@@ -311,6 +323,7 @@ fn get_customers_sync(
         page,
         page_size,
         has_next_page,
+        total_count,
     })
 }
 

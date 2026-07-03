@@ -43,7 +43,11 @@ export type PaginatedProducts = {
 	page: number;
 	pageSize: number;
 	hasNextPage: boolean;
+	totalCount: number;
 };
+
+export type ProductSortBy = 'code' | 'description' | 'units' | 'productType' | 'admCode';
+export type SortDir = 'asc' | 'desc';
 
 export async function createProduct(input: NewProduct): Promise<number> {
 	return invoke<number>('create_product', { input });
@@ -54,14 +58,18 @@ export async function getProducts(
 	pageSize = 50,
 	productTypeFilter?: ProductType | null,
 	incompleteOnly = false,
-	codeSearch?: string
+	codeSearch?: string,
+	sortBy?: ProductSortBy,
+	sortDir?: SortDir
 ): Promise<PaginatedProducts> {
 	return invoke<PaginatedProducts>('get_products', {
 		page,
 		pageSize,
 		productTypeFilter: productTypeFilter ?? undefined,
 		incompleteOnly,
-		codeSearch: codeSearch?.trim() || undefined
+		codeSearch: codeSearch?.trim() || undefined,
+		sortBy,
+		sortDir
 	});
 }
 

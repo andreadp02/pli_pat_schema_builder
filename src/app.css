@@ -1,1 +1,15 @@
 @import "tailwindcss";
+
+@layer base {
+	html {
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
+		font-kerning: normal;
+	}
+
+	/* Data tables read as data: digits share a fixed advance width so figures line up
+	   down a column, and lining figures sit on a consistent baseline. */
+	table {
+		font-variant-numeric: tabular-nums lining-nums;
+	}
+}
