@@ -80,7 +80,7 @@ pub async fn upload_customers_excel(file_path: &Path, db_path: &Path) -> Result<
     }
 
     let skipped = outcome.invalid_rows.len();
-    let inserted = customer::create_customers_bulk(db_path.to_path_buf(), outcome.ready_rows).await?;
+    let inserted = customer::replace_all_customers(db_path.to_path_buf(), outcome.ready_rows).await?;
     Ok(format_import_summary(inserted, skipped))
 }
 
@@ -118,7 +118,7 @@ pub async fn confirm_customers_excel_upload(
     }
 
     let skipped = outcome.invalid_rows.len();
-    let inserted = customer::create_customers_bulk(db_path.to_path_buf(), outcome.ready_rows).await?;
+    let inserted = customer::replace_all_customers(db_path.to_path_buf(), outcome.ready_rows).await?;
     Ok(format_import_summary(inserted, skipped))
 }
 

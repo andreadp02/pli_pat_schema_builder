@@ -283,6 +283,14 @@ function parseRequiredPositiveInteger(value: number, fieldName: string): number 
 			const validation = await validateCustomersExcel(selected);
 			const skippedMessage = formatSkippedRows(validation.invalidRows);
 
+			const confirmed = await confirmDialog(t('customers.uploadReplaceWarning'), {
+				title: t('common.confirmDeletion'),
+				kind: 'warning',
+				okLabel: t('common.ok'),
+				cancelLabel: t('common.cancel')
+			});
+			if (!confirmed) return;
+
 			if (validation.ambiguousRows.length > 0) {
 				pendingUploadPath = selected;
 				pendingSkippedMessage = skippedMessage;

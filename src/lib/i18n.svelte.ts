@@ -18,6 +18,7 @@ const en = {
 	'common.save': 'Save',
 	'common.cancel': 'Cancel',
 	'common.delete': 'Delete',
+	'common.ok': 'Ok',
 	'common.edit': 'Edit',
 	'common.reset': 'Reset',
 	'common.search': 'Search',
@@ -111,6 +112,8 @@ const en = {
 	'customers.loading': 'Loading customers...',
 	'customers.none': 'No customers found.',
 	'customers.deleteConfirm': 'Delete this customer?',
+	'customers.uploadReplaceWarning':
+		'Uploading replaces the entire customer list — customers not in this file will be permanently deleted. Continue?',
 	'customers.modalTitle': 'Resolve Province For Ambiguous Rows',
 	'customers.needProvince': '{n} row(s) need a province',
 	'customers.modalHint':
@@ -151,6 +154,7 @@ const it: Record<keyof typeof en, string> = {
 	'common.save': 'Salva',
 	'common.cancel': 'Annulla',
 	'common.delete': 'Elimina',
+	'common.ok': 'Ok',
 	'common.edit': 'Modifica',
 	'common.reset': 'Reimposta',
 	'common.search': 'Cerca',
@@ -244,6 +248,8 @@ const it: Record<keyof typeof en, string> = {
 	'customers.loading': 'Caricamento clienti...',
 	'customers.none': 'Nessun cliente trovato.',
 	'customers.deleteConfirm': 'Eliminare questo cliente?',
+	'customers.uploadReplaceWarning':
+		"Il caricamento sostituisce l'intero elenco clienti: i clienti non presenti nel file verranno eliminati definitivamente. Continuare?",
 	'customers.modalTitle': 'Risolvi la provincia per le righe ambigue',
 	'customers.needProvince': '{n} riga/e richiede una provincia',
 	'customers.modalHint':
