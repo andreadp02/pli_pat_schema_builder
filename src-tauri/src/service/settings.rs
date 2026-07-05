@@ -9,8 +9,8 @@ pub const KEY_ACCISA_PLI_PLN: &str = "accisa_pli_pln";
 pub const KEY_ACCISA_PLI_PL: &str = "accisa_pli_pl";
 pub const KEY_ACCISA_PAT: &str = "accisa_pat";
 
-/// The three excise (accisa) coefficients used to build the tracciati accisa formulas: PLI without
-/// nicotine (code `PLN…`), PLI with nicotine (code `PL…`), and PAT. Editable from the Template page.
+/// The three excise (accisa) coefficients used to build the tracciati accisa formulas: PLI with
+/// nicotine (code `PLN…`), PLI without nicotine (code `PL…`), and PAT. Editable from the Template page.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccisaCoefficients {
@@ -33,8 +33,8 @@ pub async fn save_accisa_coefficients(
 
 fn validate(coefficients: &AccisaCoefficients) -> Result<(), AppError> {
     for (name, value) in [
-        ("PLI (senza nicotina)", coefficients.pli_pln),
-        ("PLI (con nicotina)", coefficients.pli_pl),
+        ("PLI (con nicotina)", coefficients.pli_pln),
+        ("PLI (senza nicotina)", coefficients.pli_pl),
         ("PAT", coefficients.pat),
     ] {
         if !value.is_finite() || value <= 0.0 {

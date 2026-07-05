@@ -201,8 +201,8 @@ fn formula_cell(column: u32, formula: impl Into<String>) -> TemplateCell {
     }
 }
 
-/// The PLI excise coefficient: zero-nicotine liquids (code `PLN…`) use their own rate, everything
-/// else the standard PLI rate.
+/// The PLI excise coefficient: nicotine liquids (code `PLN…`) use their own rate, everything
+/// else (code `PL…`, without nicotine) the standard PLI rate.
 fn pli_accisa_coeff(code: &str, coeffs: &AccisaCoefficients) -> f64 {
     if code.starts_with("PLN") {
         coeffs.pli_pln
@@ -337,7 +337,7 @@ mod tests {
     #[test]
     fn pli_accisa_coeff_splits_on_pln_prefix() {
         let coeffs = AccisaCoefficients { pli_pln: 0.05, pli_pl: 0.124672, pat: 0.0036 };
-        // Zero-nicotine (PLN…) → its own rate; everything else → standard PLI rate.
+        // Nicotine (PLN…) → its own rate; everything else (PL…) → standard PLI rate.
         assert_eq!(pli_accisa_coeff("PLN0012162", &coeffs), 0.05);
         assert_eq!(pli_accisa_coeff("PL0012162D", &coeffs), 0.124672);
     }
