@@ -483,6 +483,7 @@
 								type="number"
 								required
 								min="0"
+								step="any"
 								bind:value={newForm.capacity}
 								class="{inputBase} font-normal"
 							/>
@@ -493,6 +494,7 @@
 								type="number"
 								required
 								min="0"
+								step="any"
 								bind:value={newForm.nicotine}
 								class="{inputBase} font-normal"
 							/>
@@ -619,11 +621,11 @@
 														{#if editForm.productType === 'pli'}
 															<label class="flex flex-col gap-1 text-xs text-slate-500">
 																{t('products.capacity')}
-																<input type="number" min="0" bind:value={editForm.capacity} class="w-28 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 text-slate-900" />
+																<input type="number" min="0" step="any" bind:value={editForm.capacity} class="w-28 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 text-slate-900" />
 															</label>
 															<label class="flex flex-col gap-1 text-xs text-slate-500">
 																{t('products.nicotine')}
-																<input type="number" min="0" bind:value={editForm.nicotine} class="w-28 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 text-slate-900" />
+																<input type="number" min="0" step="any" bind:value={editForm.nicotine} class="w-28 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 text-slate-900" />
 															</label>
 														{:else}
 															<label class="flex flex-col gap-1 text-xs text-slate-500">
@@ -641,10 +643,10 @@
 										</td>
 										{#if productTypeFilter === 'pli'}
 											<td class="px-3 py-3">
-												<input type="number" min="0" bind:value={editForm.capacity} class="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400" />
+												<input type="number" min="0" step="any" bind:value={editForm.capacity} class="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400" />
 											</td>
 											<td class="px-3 py-3">
-												<input type="number" min="0" bind:value={editForm.nicotine} class="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400" />
+												<input type="number" min="0" step="any" bind:value={editForm.nicotine} class="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400" />
 											</td>
 										{:else if productTypeFilter === 'pat'}
 											<td class="px-3 py-3">
@@ -656,12 +658,12 @@
 										{:else}
 											<td class="hidden px-3 py-3 xl:table-cell">
 												{#if editForm.productType === 'pli'}
-													<input type="number" min="0" bind:value={editForm.capacity} class="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400" />
+													<input type="number" min="0" step="any" bind:value={editForm.capacity} class="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400" />
 												{:else}<span class="text-sm text-slate-400">-</span>{/if}
 											</td>
 											<td class="hidden px-3 py-3 xl:table-cell">
 												{#if editForm.productType === 'pli'}
-													<input type="number" min="0" bind:value={editForm.nicotine} class="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400" />
+													<input type="number" min="0" step="any" bind:value={editForm.nicotine} class="w-24 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-slate-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400" />
 												{:else}<span class="text-sm text-slate-400">-</span>{/if}
 											</td>
 											<td class="hidden px-3 py-3 xl:table-cell">

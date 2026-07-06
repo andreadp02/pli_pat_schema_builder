@@ -265,8 +265,8 @@ fn build_pli_row(
         text_cell(10, customer.vat_number.clone().unwrap_or_default()), // J CF/P.IVA
         cell(11, product.description.clone()),                    // K Denominazione
         cell(12, product_code),                                   // L Codice prodotto (ADM se impostato)
-        cell(13, product.capacity.unwrap_or(0).to_string()),      // M Capacità
-        cell(14, product.nicotine.unwrap_or(0).to_string()),      // N Nicotina
+        cell(13, product.capacity.unwrap_or(0.0).to_string()),    // M Capacità
+        cell(14, product.nicotine.unwrap_or(0.0).to_string()),    // N Nicotina
         cell(15, confezioni.to_string()),                         // O Numero di confezioni (B)
         // P Quantità totale (Litri) = template formula
         cell(17, invoice.number.to_string()),                     // Q N. Fattura (working)

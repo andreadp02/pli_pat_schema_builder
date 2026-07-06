@@ -284,8 +284,8 @@ fn parse_skeleton_rows(
                 updates.push(SkeletonUpdate {
                     code: product_code.to_string(),
                     description: optional_cell(row, *description).unwrap_or_default().to_string(),
-                    capacity: optional_cell(row, *capacity).and_then(parse_u32_opt),
-                    nicotine: optional_cell(row, *nicotine).and_then(parse_u32_opt),
+                    capacity: optional_cell(row, *capacity).and_then(parse_f64_opt),
+                    nicotine: optional_cell(row, *nicotine).and_then(parse_f64_opt),
                     // adm_code is import-owned for PLI (derived from `code`, see pli_adm_code).
                     adm_code: None,
                     tabella: None,
@@ -354,15 +354,8 @@ fn pli_adm_code(code: &str) -> Option<String> {
     Some(trimmed[..trimmed.len() - 1].to_string()) // last is ASCII D/K/S → 1 byte
 }
 
-fn parse_u32_opt(value: &str) -> Option<u32> {
-    if let Ok(parsed) = value.parse::<i64>() {
-        return u32::try_from(parsed).ok();
-    }
-    value
-        .parse::<f64>()
-        .ok()
-        .filter(|f| *f >= 0.0)
-        .map(|f| f.round() as u32)
+fn parse_f64_opt(value: &str) -> Option<f64> {
+    value.replace(',', ".").parse::<f64>().ok().filter(|f| *f >= 0.0)
 }
 
 fn get_required_cell<'a>(
@@ -403,7 +396,7 @@ fn parse_non_negative_u32(value: &str, row_number: usize, field_name: &str) -> R
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_product_row, parse_products_rows, pli_adm_code, ProductColumns};
+    use super::{parse_f64_opt, parse_product_row, parse_products_rows, pli_adm_code, ProductColumns};
     use crate::service::excel::ExcelRow;
 
     fn row(cells: &[&str]) -> ExcelRow {
@@ -421,6 +414,15 @@ mod tests {
             info4: 9,
             gruppo: 10,
         }
+    }
+
+    #[test]
+    fn parses_capacity_with_dot_or_comma() {
+        assert_eq!(parse_f64_opt("2.5"), Some(2.5));
+        assert_eq!(parse_f64_opt("2,5"), Some(2.5));
+        assert_eq!(parse_f64_opt("10"), Some(10.0));
+        assert_eq!(parse_f64_opt("-1"), None);
+        assert_eq!(parse_f64_opt("abc"), None);
     }
 
     #[test]

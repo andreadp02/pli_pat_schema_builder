@@ -131,8 +131,8 @@ fn ensure_product_table_on_startup(app: &tauri::AppHandle) -> Result<(), String>
             code TEXT NOT NULL CHECK(length(code) > 0) UNIQUE,
             description TEXT,
             units INTEGER NOT NULL,
-            capacity INTEGER,
-            nicotine INTEGER,
+            capacity REAL,
+            nicotine REAL,
             packages INTEGER,
             adm_code TEXT,
             tabella INTEGER,
@@ -148,6 +148,57 @@ fn ensure_product_table_on_startup(app: &tauri::AppHandle) -> Result<(), String>
     // Idempotent migration for DBs created before adm_code/tabella existed.
     add_column_if_missing(&conn, "product", "adm_code", "TEXT")?;
     add_column_if_missing(&conn, "product", "tabella", "INTEGER")?;
+    // Runs after the adds so the rebuild's SELECT can read adm_code/tabella.
+    migrate_capacity_nicotine_to_real(&conn)?;
+
+    Ok(())
+}
+
+/// capacity/nicotine were originally INTEGER. SQLite can't ALTER a column's type,
+/// so switch their affinity to REAL via a table rebuild. Idempotent: no-op once the
+/// column already reports REAL (fresh installs, or a DB already migrated).
+fn migrate_capacity_nicotine_to_real(conn: &Connection) -> Result<(), String> {
+    let capacity_type: String = conn
+        .query_row(
+            "SELECT type FROM pragma_table_info('product') WHERE name = 'capacity'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+    if capacity_type.eq_ignore_ascii_case("REAL") {
+        return Ok(());
+    }
+
+    // Rebuild reproduces the CREATE TABLE above verbatim but with capacity/nicotine REAL.
+    // product has no incoming FKs (customer references municipality only), so the
+    // DROP/RENAME is safe. Integer values copy into REAL columns without loss.
+    conn.execute_batch(
+        "BEGIN;
+         CREATE TABLE product_migrated (
+             id INTEGER PRIMARY KEY AUTOINCREMENT,
+             product_type TEXT NOT NULL CHECK(product_type IN ('pli','pat')),
+             code TEXT NOT NULL CHECK(length(code) > 0) UNIQUE,
+             description TEXT,
+             units INTEGER NOT NULL,
+             capacity REAL,
+             nicotine REAL,
+             packages INTEGER,
+             adm_code TEXT,
+             tabella INTEGER,
+             CHECK (
+                 (product_type = 'pli' AND packages IS NULL)
+              OR (product_type = 'pat' AND capacity IS NULL AND nicotine IS NULL)
+             )
+         );
+         INSERT INTO product_migrated
+             (id, product_type, code, description, units, capacity, nicotine, packages, adm_code, tabella)
+         SELECT id, product_type, code, description, units, capacity, nicotine, packages, adm_code, tabella
+         FROM product;
+         DROP TABLE product;
+         ALTER TABLE product_migrated RENAME TO product;
+         COMMIT;",
+    )
+    .map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -274,4 +325,58 @@ fn hide_database_file_on_windows(app: &tauri::AppHandle) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn column_type(conn: &Connection, column: &str) -> String {
+        conn.query_row(
+            "SELECT type FROM pragma_table_info('product') WHERE name = ?1",
+            [column],
+            |row| row.get(0),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn migrate_switches_affinity_to_real_and_preserves_rows() {
+        let conn = Connection::open_in_memory().unwrap();
+        // Legacy schema: capacity/nicotine declared INTEGER.
+        conn.execute_batch(
+            "CREATE TABLE product (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                product_type TEXT NOT NULL CHECK(product_type IN ('pli','pat')),
+                code TEXT NOT NULL CHECK(length(code) > 0) UNIQUE,
+                description TEXT,
+                units INTEGER NOT NULL,
+                capacity INTEGER,
+                nicotine INTEGER,
+                packages INTEGER,
+                adm_code TEXT,
+                tabella INTEGER
+            );
+            INSERT INTO product (product_type, code, units, capacity, nicotine)
+                VALUES ('pli', 'PL1', 10, 2, 5);",
+        )
+        .unwrap();
+
+        migrate_capacity_nicotine_to_real(&conn).unwrap();
+
+        assert_eq!(column_type(&conn, "capacity"), "REAL");
+        assert_eq!(column_type(&conn, "nicotine"), "REAL");
+
+        // Row survived and a decimal now round-trips through the REAL column.
+        conn.execute("UPDATE product SET capacity = 2.5 WHERE code = 'PL1'", [])
+            .unwrap();
+        let capacity: f64 = conn
+            .query_row("SELECT capacity FROM product WHERE code = 'PL1'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(capacity, 2.5);
+
+        // Idempotent: a second run is a no-op.
+        migrate_capacity_nicotine_to_real(&conn).unwrap();
+        assert_eq!(column_type(&conn, "capacity"), "REAL");
+    }
 }

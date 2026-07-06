@@ -31,8 +31,8 @@ pub struct Product {
     pub description: String,
     pub units: u32,
     pub product_type: ProductType,
-    pub capacity: Option<u32>,
-    pub nicotine: Option<u32>,
+    pub capacity: Option<f64>,
+    pub nicotine: Option<f64>,
     pub packages: Option<u32>,
     /// ADM product code, written to tracciati_pat col L (PAT) or falls back to `code` in
     /// tracciati_pli. PAT sources it from the skeleton_pat; PLI derives it from `code` at import
@@ -60,8 +60,8 @@ pub struct NewProduct {
     pub code: String,
     pub description: String,
     pub units: u32,
-    pub capacity: Option<u32>,
-    pub nicotine: Option<u32>,
+    pub capacity: Option<f64>,
+    pub nicotine: Option<f64>,
     pub packages: Option<u32>,
     #[serde(default)]
     pub adm_code: Option<String>,
@@ -74,8 +74,8 @@ pub struct NewProduct {
 pub struct SkeletonUpdate {
     pub code: String,
     pub description: String,
-    pub capacity: Option<u32>,
-    pub nicotine: Option<u32>,
+    pub capacity: Option<f64>,
+    pub nicotine: Option<f64>,
     pub adm_code: Option<String>,
     pub tabella: Option<i64>,
 }
@@ -86,8 +86,8 @@ pub struct UpdateProduct {
     pub code: Option<String>,
     pub description: Option<String>,
     pub units: Option<u32>,
-    pub capacity: Option<u32>,
-    pub nicotine: Option<u32>,
+    pub capacity: Option<f64>,
+    pub nicotine: Option<f64>,
     pub packages: Option<u32>,
     #[serde(default)]
     pub adm_code: Option<String>,
@@ -109,7 +109,7 @@ const PRODUCT_COLUMNS: &str =
     "id, code, description, units, capacity, nicotine, packages, adm_code, tabella, product_type";
 
 /// The type-specific columns split out: (capacity, nicotine, packages).
-type TypeFields = (Option<u32>, Option<u32>, Option<u32>);
+type TypeFields = (Option<f64>, Option<f64>, Option<u32>);
 
 pub async fn create_product(db_path: PathBuf, input: NewProduct) -> Result<i64, AppError> {
     tauri::async_runtime::spawn_blocking(move || create_product_sync(db_path.as_path(), input))
@@ -218,8 +218,8 @@ fn normalize_adm_code(adm_code: Option<&str>) -> Option<String> {
 /// enforcing the same per-type invariant as the table's CHECK constraint.
 fn split_type_fields(
     product_type: ProductType,
-    capacity: Option<u32>,
-    nicotine: Option<u32>,
+    capacity: Option<f64>,
+    nicotine: Option<f64>,
     packages: Option<u32>,
 ) -> Result<TypeFields, AppError> {
     match product_type {
@@ -237,6 +237,10 @@ fn split_type_fields(
 
 fn opt_value(value: Option<u32>) -> Value {
     value.map_or(Value::Null, |v| Value::from(i64::from(v)))
+}
+
+fn opt_f64(value: Option<f64>) -> Value {
+    value.map_or(Value::Null, Value::from)
 }
 
 fn create_product_sync(db_path: &Path, input: NewProduct) -> Result<i64, AppError> {
@@ -269,8 +273,8 @@ fn create_product_sync(db_path: &Path, input: NewProduct) -> Result<i64, AppErro
             normalized_code,
             description,
             units,
-            opt_value(capacity),
-            opt_value(nicotine),
+            opt_f64(capacity),
+            opt_f64(nicotine),
             opt_value(packages),
             normalize_adm_code(adm_code.as_deref()),
             tabella
@@ -331,8 +335,8 @@ fn insert_products_in_batches(
             params_values.push(Value::from(normalized_code));
             params_values.push(Value::from(product.description.clone()));
             params_values.push(Value::from(i64::from(product.units)));
-            params_values.push(opt_value(capacity));
-            params_values.push(opt_value(nicotine));
+            params_values.push(opt_f64(capacity));
+            params_values.push(opt_f64(nicotine));
             params_values.push(opt_value(packages));
             params_values.push(match normalize_adm_code(product.adm_code.as_deref()) {
                 Some(code) => Value::from(code),
@@ -389,8 +393,8 @@ fn update_products_from_skeleton_sync(
             matched += stmt
                 .execute(params![
                     row.description,
-                    row.capacity.map(i64::from),
-                    row.nicotine.map(i64::from),
+                    row.capacity,
+                    row.nicotine,
                     normalize_adm_code(row.adm_code.as_deref()).unwrap_or_default(),
                     row.tabella,
                     code,
@@ -639,8 +643,8 @@ fn update_product_sync(db_path: &Path, id: i64, input: UpdateProduct) -> Result<
                 next_code,
                 next_description,
                 next_units,
-                opt_value(next_capacity),
-                opt_value(next_nicotine),
+                opt_f64(next_capacity),
+                opt_f64(next_nicotine),
                 opt_value(next_packages),
                 next_adm_code,
                 next_tabella,
@@ -711,8 +715,8 @@ mod tests {
                 code TEXT NOT NULL CHECK(length(code) > 0) UNIQUE,
                 description TEXT,
                 units INTEGER NOT NULL,
-                capacity INTEGER,
-                nicotine INTEGER,
+                capacity REAL,
+                nicotine REAL,
                 packages INTEGER,
                 adm_code TEXT,
                 tabella INTEGER,
@@ -730,8 +734,8 @@ mod tests {
     fn new(
         product_type: ProductType,
         code: &str,
-        capacity: Option<u32>,
-        nicotine: Option<u32>,
+        capacity: Option<f64>,
+        nicotine: Option<f64>,
         packages: Option<u32>,
     ) -> NewProduct {
         NewProduct {
@@ -750,12 +754,12 @@ mod tests {
     #[test]
     fn lookup_by_code_finds_each_type_and_respects_filter() {
         let db = temp_db();
-        create_product_sync(&db, new(ProductType::Pli, "p1", Some(10), Some(5), None)).unwrap();
+        create_product_sync(&db, new(ProductType::Pli, "p1", Some(10.0), Some(5.0), None)).unwrap();
         create_product_sync(&db, new(ProductType::Pat, "a1", None, None, Some(3))).unwrap();
 
         let pli = get_product_by_code_sync(&db, "p1", None).unwrap().unwrap();
         assert_eq!(pli.product_type, ProductType::Pli);
-        assert_eq!((pli.capacity, pli.nicotine, pli.packages), (Some(10), Some(5), None));
+        assert_eq!((pli.capacity, pli.nicotine, pli.packages), (Some(10.0), Some(5.0), None));
 
         let pat = get_product_by_code_sync(&db, "a1", None).unwrap().unwrap();
         assert_eq!(pat.product_type, ProductType::Pat);
@@ -801,8 +805,8 @@ mod tests {
                 SkeletonUpdate {
                     code: "p1".into(),
                     description: "MENTA".into(),
-                    capacity: Some(20),
-                    nicotine: Some(5),
+                    capacity: Some(20.0),
+                    nicotine: Some(5.0),
                     adm_code: None,
                     tabella: None,
                 },
@@ -828,7 +832,7 @@ mod tests {
         assert_eq!(matched, 2); // the unknown code is skipped
 
         let pli = get_product_by_code_sync(&db, "p1", None).unwrap().unwrap();
-        assert_eq!((pli.description.as_str(), pli.capacity, pli.nicotine), ("MENTA", Some(20), Some(5)));
+        assert_eq!((pli.description.as_str(), pli.capacity, pli.nicotine), ("MENTA", Some(20.0), Some(5.0)));
         assert!(pli.is_skeleton_complete());
         let pat = get_product_by_code_sync(&db, "a1", None).unwrap().unwrap();
         assert_eq!(
@@ -859,7 +863,7 @@ mod tests {
         .unwrap();
 
         let pli = get_product_by_code_sync(&db, "p1", None).unwrap().unwrap();
-        assert_eq!((pli.units, pli.description.as_str(), pli.capacity), (7, "MENTA", Some(20)));
+        assert_eq!((pli.units, pli.description.as_str(), pli.capacity), (7, "MENTA", Some(20.0)));
         let pat = get_product_by_code_sync(&db, "a1", None).unwrap().unwrap();
         assert_eq!(
             (pat.units, pat.packages, pat.tabella, pat.adm_code.as_deref()),
@@ -919,7 +923,7 @@ mod tests {
     fn update_product_sets_adm_code_and_preserves_it_when_absent() {
         let db = temp_db();
         let id =
-            create_product_sync(&db, new(ProductType::Pli, "p1", Some(10), Some(5), None)).unwrap();
+            create_product_sync(&db, new(ProductType::Pli, "p1", Some(10.0), Some(5.0), None)).unwrap();
 
         update_product_sync(
             &db,
